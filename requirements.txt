@@ -1,0 +1,29 @@
+# RMAV Desktop - Requirements
+# Python 3.8+
+
+# PySide6 - GUI Framework (Qt6 official binding, more stable on Windows)
+PySide6>=6.6.0
+
+# PyTorch - Deep Learning Framework
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Image Processing
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# HTTP Client for Backend Communication
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Real-time Protection - File System Monitoring
+watchdog>=3.0.0
+
+# Notifications (Windows)
+win10toast>=0.9; platform_system=="Windows"
+
+# Optional: for better performance on CUDA-enabled systems
+# Install from: https://pytorch.org/get-started/locally/
+# torch --index-url https://download.pytorch.org/whl/cu118
+# torchvision --index-url https://download.pytorch.org/whl/cu118
+
