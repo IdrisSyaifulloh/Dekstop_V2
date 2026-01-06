@@ -1,5 +1,0 @@
-Thread,Delay,File,Time,Ram Usage,Minimum CPU usage,Max Cpu Usage
-1,0,benign_sample.txt,0.07s,335.6 MB,0.0%,57.3%
-2,0,benign_sample.txt,0.03s,334.2 MB,57.3%,99.4%
-4,0,benign_sample.txt,5.51s,336.9 MB,0.0%,336.0%
-8,0,benign_sample.txt,5.39s,338.0 MB,0.0%,702.4%
