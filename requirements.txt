@@ -22,8 +22,21 @@ watchdog>=3.0.0
 # Notifications (Windows)
 win10toast>=0.9; platform_system=="Windows"
 
+# ONNX Runtime - For ML Model Inference (Faster than PyTorch)
+onnxruntime>=1.16.0
+
+# System Monitoring
+psutil>=5.9.0
+
+# Plotting/Diagrams (for activity diagrams)
+matplotlib>=3.7.0
+
+# PyInstaller - For Building Executable
+pyinstaller>=6.0.0
+
 # Optional: for better performance on CUDA-enabled systems
 # Install from: https://pytorch.org/get-started/locally/
 # torch --index-url https://download.pytorch.org/whl/cu118
 # torchvision --index-url https://download.pytorch.org/whl/cu118
+# onnxruntime-gpu>=1.16.0  # For GPU acceleration with ONNX
 
