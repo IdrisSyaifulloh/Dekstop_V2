@@ -38,25 +38,5 @@ SYSTEM REQUIREMENTS:
 - 500MB disk space
 - (Optional) Internet untuk model update
 
-TROUBLESHOOTING:
-
-Q: Windows Defender block aplikasi?
-A: Klik "More info" → "Run anyway"
-   Atau add folder ke Windows Defender exclusion
-
-Q: Aplikasi lambat?
-A: Matikan real-time protection (toggle OFF)
-
-Q: Error saat scan?
-A: Run as Administrator
-
-Q: Data tersimpan dimana?
-A: C:\Users\<username>\.mangodefend\
-
-KONTAK & SUPPORT:
-
-LISENSI:
-MIT License - Free to use
-
 VERSION: 1.0.2
 BUILD DATE: 2025-12-23
