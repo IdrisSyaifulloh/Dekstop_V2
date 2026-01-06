@@ -2,12 +2,8 @@
    MangoDefend - Malware Detection AI
 ===========================================
 
-CARA INSTALL:
-1. Extract folder MangoDefend_v1.0.zip
-2. Buka folder MangoDefend
-3. Double-click MangoDefend.exe
-4. Tunggu beberapa detik (backend akan start otomatis)
-5. Aplikasi siap digunakan!
+Aplikasi On :
+Folder Dist 
 
 FITUR UTAMA:
 ✅ Scan File/Folder untuk malware
@@ -58,11 +54,9 @@ Q: Data tersimpan dimana?
 A: C:\Users\<username>\.mangodefend\
 
 KONTAK & SUPPORT:
-Email: your.email@example.com
-GitHub: https://github.com/yourusername/mangodefend
 
 LISENSI:
 MIT License - Free to use
 
-VERSION: 1.0.0
+VERSION: 1.0.2
 BUILD DATE: 2025-12-23
