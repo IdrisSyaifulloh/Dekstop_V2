@@ -725,18 +725,37 @@ class RealtimeProtection:
 
                     try:
                         proc = psutil.Process(pid)
-                        exe_path = proc.exe()
+
+                        # ── SUSPEND IMMEDIATELY ──────────────────────────────
+                        # Freeze the process BEFORE reading exe/cmdline so it
+                        # cannot render or execute anything while we decide.
+                        # We resume it if it turns out to be clean/safe.
+                        pre_suspended = False
+                        try:
+                            exe_path = proc.exe()
+                            if exe_path and not self._is_system_process(exe_path):
+                                proc.suspend()
+                                pre_suspended = True
+                                self.stats["processes_suspended"] += 1
+                                logger.debug(f"⏸️ Pre-suspended: {proc.name()} (PID={pid})")
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                        # ─────────────────────────────────────────────────────
+
+                        exe_path = proc.exe() if not exe_path else exe_path
 
                         if not exe_path:
+                            if pre_suspended:
+                                try: proc.resume()
+                                except Exception: pass
                             continue
 
-                        # Fast path: skip non-dangerous executables immediately
-                        # (browsers, system tools, etc.) — don't even check cache
                         exe_ext = Path(exe_path).suffix.lower()
                         if exe_ext not in DANGEROUS_EXTENSIONS:
-                            # Still check opened file args for all processes
+                            # Check opened file args for all processes
                             try:
                                 cmdline = proc.cmdline()
+                                handled = False
                                 if len(cmdline) > 1:
                                     for arg in cmdline[1:]:
                                         clean_arg = arg.strip().strip('"').strip("'")
@@ -750,22 +769,41 @@ class RealtimeProtection:
                                             arg_ext = Path(clean_arg).suffix.lower()
                                             if arg_ext in DANGEROUS_EXTENSIONS:
                                                 logger.info(f"📂 Dangerous file opened: {os.path.basename(clean_arg)} by {proc.name()}")
-                                                self._scan_opened_file(proc, pid, clean_arg)
+                                                # Pass pre_suspended so _scan_opened_file
+                                                # knows the process is already frozen.
+                                                self._scan_opened_file(
+                                                    proc, pid, clean_arg,
+                                                    already_suspended=pre_suspended
+                                                )
+                                                pre_suspended = False  # ownership transferred
+                                                handled = True
+                                                break
+                                if not handled and pre_suspended:
+                                    try: proc.resume()
+                                    except Exception: pass
                             except (psutil.NoSuchProcess, psutil.AccessDenied):
-                                pass
+                                if pre_suspended:
+                                    try: proc.resume()
+                                    except Exception: pass
                             continue
 
                         is_system = self._is_system_process(exe_path)
 
                         # ── LAYER A: Scan the executable itself ──
                         if not is_system and exe_path not in self.scan_cache:
-                            self._scan_and_handle_process(proc, pid, exe_path)
+                            # Process already pre-suspended — pass that context
+                            self._scan_and_handle_process(
+                                proc, pid, exe_path,
+                                already_suspended=pre_suspended
+                            )
+                            pre_suspended = False
                             continue
 
                         # ── LAYER B: Scan files being OPENED by this process ──
                         try:
                             cmdline = proc.cmdline()
                             logger.info(f"🔎 New process: {proc.name()} PID={pid} args={len(cmdline)-1}")
+                            handled = False
 
                             if len(cmdline) > 1:
                                 for arg in cmdline[1:]:
@@ -780,9 +818,20 @@ class RealtimeProtection:
                                         if clean_arg in self.scan_cache:
                                             continue
                                         logger.info(f"📂 File opened: {os.path.basename(clean_arg)} by {proc.name()}")
-                                        self._scan_opened_file(proc, pid, clean_arg)
+                                        self._scan_opened_file(
+                                            proc, pid, clean_arg,
+                                            already_suspended=pre_suspended
+                                        )
+                                        pre_suspended = False  # ownership transferred
+                                        handled = True
+                                        break
+                            if not handled and pre_suspended:
+                                try: proc.resume()
+                                except Exception: pass
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
+                            if pre_suspended:
+                                try: proc.resume()
+                                except Exception: pass
 
                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                         continue
@@ -798,14 +847,17 @@ class RealtimeProtection:
 
         logger.info("Process monitor worker stopped")
 
-    def _scan_and_handle_process(self, proc, pid: int, exe_path: str):
+    def _scan_and_handle_process(self, proc, pid: int, exe_path: str, already_suspended: bool = False):
         """Suspend process, scan its executable, ask user if malware."""
         import psutil
 
         try:
-            logger.info(f"⏸️ SUSPENDED process: {proc.name()} (PID={pid})")
-            proc.suspend()
-            self.stats["processes_suspended"] += 1
+            if not already_suspended:
+                proc.suspend()
+                self.stats["processes_suspended"] += 1
+                logger.info(f"⏸️ SUSPENDED process: {proc.name()} (PID={pid})")
+            else:
+                logger.info(f"⏸️ Already suspended: {proc.name()} (PID={pid})")
 
             result = self.scanner.scan_file(exe_path)
             self.stats["files_scanned"] += 1
@@ -839,7 +891,7 @@ class RealtimeProtection:
             except Exception:
                 pass
 
-    def _scan_opened_file(self, proc, pid: int, file_path: str):
+    def _scan_opened_file(self, proc, pid: int, file_path: str, already_suspended: bool = False):
         """
         Scan a file being opened by a process.
         IMMEDIATELY suspend the opener so it cannot render/execute the file
@@ -847,20 +899,21 @@ class RealtimeProtection:
         """
         import psutil
 
-        suspended = False
+        suspended = already_suspended
         try:
             logger.info(f"🔍 Scanning opened file: {os.path.basename(file_path)} (opened by {proc.name()}, PID={pid})")
 
-            # ── Suspend the opener process RIGHT AWAY ──
-            # This freezes e.g. Photos before it can render a malware image,
-            # or a script host before it can run a malicious script.
-            try:
-                proc.suspend()
-                suspended = True
-                self.stats["processes_suspended"] += 1
-                logger.info(f"⏸️ SUSPENDED opener: {proc.name()} (PID={pid}) while scanning")
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass  # Process died or no permission — scan anyway
+            # ── Suspend the opener process RIGHT AWAY (if not already done) ──
+            if not already_suspended:
+                try:
+                    proc.suspend()
+                    suspended = True
+                    self.stats["processes_suspended"] += 1
+                    logger.info(f"⏸️ SUSPENDED opener: {proc.name()} (PID={pid}) while scanning")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass  # Process died or no permission — scan anyway
+            else:
+                logger.info(f"⏸️ Already suspended opener: {proc.name()} (PID={pid}) while scanning")
 
             result = self.scanner.scan_file(file_path)
             self.stats["files_scanned"] += 1
