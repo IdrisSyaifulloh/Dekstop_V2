@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from ui.widgets.glass_card import GlassCard
-from ui.styles.figma_theme import Colors, Typography
+from ui.styles.figma_theme import Colors, Typography, StyleHelper, Sizes
 
 
 class ProtectionView(QWidget):
@@ -146,27 +146,7 @@ class ProtectionView(QWidget):
         self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_btn.setFixedWidth(260)
         self.toggle_btn.setFixedHeight(52)
-        self.toggle_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {Colors.ORANGE_500}, stop:1 {Colors.RED_500});
-                color: white;
-                border: none;
-                border-radius: 26px;
-                padding: 14px 28px;
-                font-weight: 700;
-                font-size: 14px;
-                font-family: {Typography.FONT_FAMILY};
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {Colors.ORANGE_400}, stop:1 {Colors.RED_400});
-            }}
-            QPushButton:pressed {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {Colors.RED_400}, stop:1 {Colors.RED_600});
-            }}
-        """)
+        self.toggle_btn.setStyleSheet(StyleHelper.pill_button_primary(Sizes.BTN_HEIGHT_LG))
         self.toggle_btn.clicked.connect(self._toggle_protection)
         
         btn_row = QHBoxLayout()
@@ -178,12 +158,7 @@ class ProtectionView(QWidget):
         
         # ===== LIVE STATS SECTION =====
         stats_header = QLabel("Statistik Real-time")
-        stats_header.setStyleSheet(f"""
-            color: white;
-            font-size: 18px;
-            font-weight: bold;
-            font-family: {Typography.FONT_FAMILY};
-        """)
+        stats_header.setStyleSheet(StyleHelper.section_header())
         layout.addWidget(stats_header)
         
         stats_grid = QGridLayout()
@@ -203,12 +178,7 @@ class ProtectionView(QWidget):
         
         # ===== PROTECTION LAYERS SECTION =====
         layers_header = QLabel("Lapisan Perlindungan")
-        layers_header.setStyleSheet(f"""
-            color: white;
-            font-size: 18px;
-            font-weight: bold;
-            font-family: {Typography.FONT_FAMILY};
-        """)
+        layers_header.setStyleSheet(StyleHelper.section_header())
         layout.addWidget(layers_header)
         
         layers = [
@@ -323,16 +293,7 @@ class ProtectionView(QWidget):
         title_row.addWidget(title_label)
         
         badge = QLabel(badge_text)
-        badge.setStyleSheet(f"""
-            color: {Colors.ORANGE_400};
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            background: rgba(255, 165, 0, 0.15);
-            border: 1px solid rgba(255, 165, 0, 0.3);
-            border-radius: 8px;
-            padding: 3px 10px;
-        """)
+        badge.setStyleSheet(StyleHelper.tag_badge())
         title_row.addWidget(badge)
         title_row.addStretch()
         
@@ -385,22 +346,7 @@ class ProtectionView(QWidget):
             """)
             
             self.toggle_btn.setText("Nonaktifkan Perlindungan")
-            self.toggle_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 {Colors.RED_500}, stop:1 {Colors.RED_600});
-                    color: white;
-                    border: none;
-                    border-radius: 26px;
-                    padding: 14px 28px;
-                    font-weight: 700;
-                    font-size: 14px;
-                    font-family: {Typography.FONT_FAMILY};
-                }}
-                QPushButton:hover {{
-                    background: {Colors.RED_600};
-                }}
-            """)
+            self.toggle_btn.setStyleSheet(StyleHelper.pill_button_danger(Sizes.BTN_HEIGHT_LG))
             
             # Start live stats timer
             self._stats_timer.start()
@@ -434,27 +380,7 @@ class ProtectionView(QWidget):
             """)
             
             self.toggle_btn.setText("Aktifkan Perlindungan")
-            self.toggle_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 {Colors.ORANGE_500}, stop:1 {Colors.RED_500});
-                    color: white;
-                    border: none;
-                    border-radius: 26px;
-                    padding: 14px 28px;
-                    font-weight: 700;
-                    font-size: 14px;
-                    font-family: {Typography.FONT_FAMILY};
-                }}
-                QPushButton:hover {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 {Colors.ORANGE_400}, stop:1 {Colors.RED_400});
-                }}
-                QPushButton:pressed {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 {Colors.RED_400}, stop:1 {Colors.RED_600});
-                }}
-            """)
+            self.toggle_btn.setStyleSheet(StyleHelper.pill_button_primary(Sizes.BTN_HEIGHT_LG))
             
             # Stop live stats timer
             self._stats_timer.stop()
