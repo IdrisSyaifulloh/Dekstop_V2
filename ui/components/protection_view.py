@@ -354,7 +354,7 @@ class ProtectionView(QWidget):
             self._stats_timer.start()
         else:
             # OFF state
-            self.shield_icon.setText("🛡️")
+            self.shield_icon.setText("")
             self.shield_container.setStyleSheet("""
                 QFrame {
                     background: qradialgradient(cx:0.5, cy:0.5, radius:0.5,

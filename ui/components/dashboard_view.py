@@ -4,6 +4,7 @@ Main dashboard showing protection status, stats, and activity
 """
 import os
 import re
+import sys
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QGridLayout, QScrollArea
@@ -15,7 +16,18 @@ from ui.styles.figma_theme import Colors, Typography
 from datetime import datetime
 import psutil
 
-_LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "mango_icon.png")
+
+def _asset(relative: str) -> str:
+    """Resolve asset path for both dev and PyInstaller frozen mode."""
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+    else:
+        # dashboard_view.py lives in ui/components/ — go up 2 levels to app root
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, relative)
+
+
+_LOGO_PATH = _asset(os.path.join('assets', 'mango_icon.png'))
 
 
 class DashboardView(QWidget):
@@ -156,26 +168,28 @@ class DashboardView(QWidget):
     def _create_about_card(self) -> GlassCard:
         """About MangoDefend card with app logo and info."""
         card = GlassCard()
-        card.setMinimumHeight(400)
+        card.setMinimumHeight(420)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(40, 40, 40, 40)
+        # Top margin 32 (not 40) so the logo doesn’t get nipped by the 24px
+        # corner-radius clip of GlassCard’s paintEvent.
+        layout.setContentsMargins(40, 32, 40, 40)
         layout.setSpacing(0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # ── Logo ──
+        # ── Logo — give it a fixed container so it never touches the card edge ──
         logo_lbl = QLabel()
         logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_lbl.setStyleSheet("background: transparent;")
+        logo_lbl.setStyleSheet("background: transparent; padding-top: 8px;")
         pix = QPixmap(_LOGO_PATH)
         if not pix.isNull():
-            logo_lbl.setPixmap(pix.scaled(110, 110, Qt.AspectRatioMode.KeepAspectRatio,
+            logo_lbl.setPixmap(pix.scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio,
                                           Qt.TransformationMode.SmoothTransformation))
         else:
             logo_lbl.setText("🥭")
             logo_lbl.setStyleSheet("font-size: 72px; background: transparent;")
         layout.addWidget(logo_lbl)
-        layout.addSpacing(20)
+        layout.addSpacing(18)
 
         # ── App name ──
         app_name = self._reg_p(QLabel("MangoDefend"))

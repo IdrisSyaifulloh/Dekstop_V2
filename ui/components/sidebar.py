@@ -10,6 +10,17 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap, QFont
 from ui.styles.figma_theme import Colors
 import os
+import sys
+
+
+def _asset(relative: str) -> str:
+    """Resolve asset path for both dev and PyInstaller frozen mode."""
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+    else:
+        # sidebar.py lives in ui/components/ — go up 2 levels to app root
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, relative)
 
 
 class Sidebar(QWidget):
@@ -78,7 +89,7 @@ class Sidebar(QWidget):
         
         # Logo icon
         logo_label = QLabel()
-        icon_path = os.path.join("assets", "mango_icon.png")
+        icon_path = _asset(os.path.join('assets', 'mango_icon.png'))
         if os.path.exists(icon_path):
             pixmap = QPixmap(icon_path)
             scaled = pixmap.scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio,

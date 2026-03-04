@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QFrame, QPushButton, QFileDialog, QListWidget,
     QListWidgetItem, QScrollArea, QGridLayout
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QEvent
 from ui.widgets.glass_card import GlassCard
 from ui.styles.figma_theme import Colors, Typography, StyleHelper
 
@@ -32,6 +32,11 @@ class ScanView(QWidget):
         super().__init__(parent)
         self.is_dark = True
         self.setAcceptDrops(True)
+
+        # We'll install an event filter on the scroll area so drops that
+        # land anywhere inside the view are forwarded back to ScanView.
+        # Needed for PyInstaller-frozen builds where Qt routing is stricter.
+        self._scroll_ref = None
 
         # Label registries — populated in setup_ui(), updated by _apply_theme()
         self._primary_labels: list[QLabel] = []
@@ -82,6 +87,14 @@ class ScanView(QWidget):
         scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Enable drops on the scroll area + its viewport so that drag events
+        # are not swallowed before they can reach ScanView.
+        scroll.setAcceptDrops(True)
+        scroll.viewport().setAcceptDrops(True)
+        scroll.installEventFilter(self)
+        scroll.viewport().installEventFilter(self)
+        self._scroll_ref = scroll
         
         content = QWidget()
         content.setStyleSheet("background:transparent;")
@@ -294,11 +307,36 @@ class ScanView(QWidget):
         self.device_scan_requested.emit()
     
     # ── Drag & Drop ──
-    
+
+    def eventFilter(self, obj, event):
+        """Forward drag events from child widgets (scroll area, viewport) to self."""
+        t = event.type()
+        if t == QEvent.Type.DragEnter:
+            self.dragEnterEvent(event)
+            return True
+        if t == QEvent.Type.DragMove:
+            self.dragMoveEvent(event)
+            return True
+        if t == QEvent.Type.Drop:
+            self.dropEvent(event)
+            return True
+        if t == QEvent.Type.DragLeave:
+            return True
+        return super().eventFilter(obj, event)
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-    
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        """Must accept dragMoveEvent or Qt will revert to block cursor."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
     def dropEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
