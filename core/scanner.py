@@ -58,11 +58,11 @@ class MalwareScanner:
         sess_options = ort.SessionOptions()
 
         if aggressive:
-            # 🔥 FULL DEVICE SCAN (LEBIH CEPAT)
+            #  FULL DEVICE SCAN (LEBIH CEPAT)
             sess_options.intra_op_num_threads = min(4, cpu_count)
             sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL
         else:
-            # 🟢 REALTIME / SINGLE SCAN (AMAN)
+            #  REALTIME / SINGLE SCAN (AMAN)
             sess_options.intra_op_num_threads = min(2, cpu_count)
             sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 

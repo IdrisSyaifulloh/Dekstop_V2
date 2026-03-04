@@ -79,14 +79,6 @@ class FileConverter:
     ) -> dict:
         """
         Convert a binary file to a grayscale image
-
-        Args:
-            file_path: Path to the file to convert
-            width_override: Optional width override (default: calculated from file size)
-            color_mode: Color mode ('gray' or 'rgb')
-
-        Returns:
-            dict: Conversion result with output path and metadata
         """
         file_path_obj = Path(file_path)
 

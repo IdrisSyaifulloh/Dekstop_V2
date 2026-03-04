@@ -1,4 +1,2 @@
-"""
-UI Threads Package
-Contains background worker threads
-"""
+"""UI Threads Package"""
+from .scan_thread import ScanThread, BatchScanThread

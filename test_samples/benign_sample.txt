@@ -1,3 +1,0 @@
-This is a benign test file for performance testing.
-It contains no malicious code.
-Just plain text for testing purposes.

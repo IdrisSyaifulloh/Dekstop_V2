@@ -85,7 +85,7 @@ class ResultDialog(QWidget):
         status_row.setSpacing(15)
         status_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        icon_text = "!" if not is_safe else ""
+        icon_text = "!" if not is_safe else "✓"
         status_icon = QLabel(icon_text)
         status_icon.setFixedSize(50, 50)
         status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -111,6 +111,16 @@ class ResultDialog(QWidget):
         status_row.addStretch()
 
         header_layout.addLayout(status_row)
+
+        # Subtitle dengan confidence yang sudah diperbaiki
+        subtitle = QLabel(f"Pemindaian selesai dengan tingkat keyakinan {confidence:.0%}")
+        subtitle.setStyleSheet("""
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.95);
+            font-family: 'Segoe UI', Arial, sans-serif;
+            padding-left: 65px;
+        """)
+        header_layout.addWidget(subtitle)
 
         # Style header - konsisten warna mango/orange
         header.setStyleSheet(f"""
@@ -141,7 +151,7 @@ class ResultDialog(QWidget):
             font-size: 11px;
             font-weight: 600;
             color: #6B7280;
-            font-family: 'SF Pro Display';
+            font-family: 'Segoe UI', Arial, sans-serif;
             letter-spacing: 0.5px;
         """)
         file_layout.addWidget(file_header)
@@ -159,7 +169,7 @@ class ResultDialog(QWidget):
             font-size: 14px;
             font-weight: 500;
             color: #1F2937;
-            font-family: 'SF Pro Display', monospace;
+            font-family: 'Courier New', monospace;
             padding: 4px 0;
         """)
         file_layout.addWidget(file_name)
@@ -185,7 +195,7 @@ class ResultDialog(QWidget):
             font-size: 11px;
             font-weight: 600;
             color: #6B7280;
-            font-family: 'SF Pro Display';
+            font-family: 'Segoe UI', Arial, sans-serif;
             letter-spacing: 0.5px;
         """)
         detect_layout.addWidget(detect_header)
@@ -218,7 +228,7 @@ class ResultDialog(QWidget):
                 details_label.setStyleSheet("""
                     font-size: 12px;
                     color: #6B7280;
-                    font-family: 'SF Pro Display';
+                    font-family: 'Segoe UI', Arial, sans-serif;
                     margin-top: 8px;
                 """)
                 detect_layout.addWidget(details_label)
@@ -232,6 +242,55 @@ class ResultDialog(QWidget):
         """)
         content_layout.addWidget(detect_card)
 
+        # Confidence Meter - warna konsisten
+        confidence_section = QVBoxLayout()
+        confidence_section.setSpacing(12)
+
+        conf_label = QLabel("TINGKAT KEYAKINAN")
+        conf_label.setStyleSheet("""
+            font-size: 11px;
+            font-weight: 600;
+            color: #6B7280;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            letter-spacing: 0.5px;
+        """)
+        confidence_section.addWidget(conf_label)
+
+        # Progress bar container
+        conf_container = QHBoxLayout()
+        conf_container.setSpacing(15)
+
+        conf_bar = QProgressBar()
+        conf_bar.setRange(0, 100)
+        conf_bar.setValue(int(confidence * 100))
+        conf_bar.setTextVisible(False)
+        conf_bar.setFixedHeight(12)
+        conf_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background: #E5E7EB;
+                border-radius: 6px;
+                border: none;
+            }}
+            QProgressBar::chunk {{
+                background: {'#32CD32' if is_safe else '#FFA500'};
+                border-radius: 6px;
+            }}
+        """)
+        conf_container.addWidget(conf_bar, 1)
+
+        conf_percent = QLabel(f"{confidence:.0%}")
+        conf_percent.setStyleSheet(f"""
+            font-size: 24px;
+            font-weight: 700;
+            color: {'#32CD32' if is_safe else '#FF8C00'};
+            font-family: 'Segoe UI', Arial, sans-serif;
+            min-width: 60px;
+        """)
+        conf_container.addWidget(conf_percent)
+
+        confidence_section.addLayout(conf_container)
+        content_layout.addLayout(confidence_section)
+
         # Warning banner untuk malware - warna konsisten orange
         if not is_safe:
             warning = QFrame()
@@ -239,6 +298,20 @@ class ResultDialog(QWidget):
             warn_layout = QHBoxLayout(warning)
             warn_layout.setContentsMargins(16, 14, 16, 14)
             warn_layout.setSpacing(12)
+
+            warn_icon = QLabel("⚠")
+            warn_icon.setStyleSheet("font-size: 24px; color: #FF8C00;")
+            warn_layout.addWidget(warn_icon)
+
+            warn_text = QLabel("Segera hapus file ini untuk melindungi perangkat Anda")
+            warn_text.setWordWrap(True)
+            warn_text.setStyleSheet("""
+                font-size: 13px;
+                font-weight: 600;
+                color: #CC6600;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            """)
+            warn_layout.addWidget(warn_text, 1)
 
             warning.setStyleSheet("""
                 QFrame#warningBanner {
@@ -261,14 +334,13 @@ class ResultDialog(QWidget):
         if is_full_scan:
             device_name = "MangoDefend Scanner"
         else:
-            device_data = self.result_data.get('device', {})
-            device_name = device_data.get('device_name', 'MangoDefend Scanner')
+            device_name = self.result_data['device']['device_name']
 
         device_info = QLabel(f" {device_name}")
         device_info.setStyleSheet("""
             font-size: 12px;
             color: #9CA3AF;
-            font-family: 'SF Pro Display';
+            font-family: 'Segoe UI', Arial, sans-serif;
         """)
         footer_layout.addWidget(device_info)
         footer_layout.addStretch()
@@ -286,7 +358,7 @@ class ResultDialog(QWidget):
                 border-radius: 8px;
                 font-weight: 600;
                 font-size: 14px;
-                font-family: 'SF Pro Display';
+                font-family: 'Segoe UI', Arial, sans-serif;
             }}
             QPushButton:hover {{
                 background: {'#90EE90' if is_safe else '#FFB732'};

@@ -192,6 +192,8 @@ def main():
         window.sync_manager = sync_manager
     if realtime_protection:
         window.realtime_protection = realtime_protection
+        # Connect malware alert bridge: background thread → UI popup
+        realtime_protection.malware_bridge = window.malware_bridge
     if model_updater:
         window.model_updater = model_updater
     
