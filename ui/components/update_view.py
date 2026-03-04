@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from ui.widgets.glass_card import GlassCard
-from ui.styles.figma_theme import Colors, Typography
+from ui.styles.figma_theme import Colors, Typography, StyleHelper, Sizes
 from datetime import datetime
 import os
 from pathlib import Path
@@ -60,10 +60,7 @@ class UpdateView(QWidget):
         
         # ===== MODEL INFO CARDS =====
         info_header = QLabel(" Informasi Model")
-        info_header.setStyleSheet(f"""
-            color: white; font-size: 18px; font-weight: bold;
-            font-family: {Typography.FONT_FAMILY};
-        """)
+        info_header.setStyleSheet(StyleHelper.section_header())
         layout.addWidget(info_header)
         
         info_grid = QGridLayout()
@@ -90,10 +87,7 @@ class UpdateView(QWidget):
         
         # ===== UPDATE HISTORY =====
         history_header = QLabel("Riwayat Pembaruan")
-        history_header.setStyleSheet(f"""
-            color: white; font-size: 18px; font-weight: bold;
-            font-family: {Typography.FONT_FAMILY};
-        """)
+        history_header.setStyleSheet(StyleHelper.section_header())
         layout.addWidget(history_header)
         
         history_items = [
@@ -162,16 +156,7 @@ class UpdateView(QWidget):
         
         # Status badge
         self.version_status = QLabel("Model terbaru")
-        self.version_status.setStyleSheet(f"""
-            color: {Colors.GREEN_500};
-            font-size: 13px;
-            font-weight: 600;
-            background: rgba(50, 205, 50, 0.1);
-            border: 1px solid rgba(50, 205, 50, 0.25);
-            border-radius: 14px;
-            padding: 6px 18px;
-            font-family: {Typography.FONT_FAMILY};
-        """)
+        self.version_status.setStyleSheet(StyleHelper.status_badge(Colors.GREEN_500))
         self.version_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         badge_row = QHBoxLayout()
@@ -274,31 +259,7 @@ class UpdateView(QWidget):
         self.check_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.check_btn.setFixedHeight(48)
         self.check_btn.setFixedWidth(220)
-        self.check_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {Colors.ORANGE_500}, stop:1 {Colors.RED_500});
-                color: white;
-                border: none;
-                border-radius: 24px;
-                padding: 12px 28px;
-                font-weight: 700;
-                font-size: 14px;
-                font-family: {Typography.FONT_FAMILY};
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {Colors.ORANGE_400}, stop:1 {Colors.RED_400});
-            }}
-            QPushButton:pressed {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {Colors.RED_400}, stop:1 {Colors.RED_600});
-            }}
-            QPushButton:disabled {{
-                background: rgba(255,255,255,0.1);
-                color: rgba(255,255,255,0.3);
-            }}
-        """)
+        self.check_btn.setStyleSheet(StyleHelper.pill_button_primary(Sizes.BTN_HEIGHT_MD))
         self.check_btn.clicked.connect(self._check_for_updates)
         button_row.addWidget(self.check_btn)
         
@@ -306,25 +267,7 @@ class UpdateView(QWidget):
         self.download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.download_btn.setFixedHeight(48)
         self.download_btn.setFixedWidth(220)
-        self.download_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(255, 165, 0, 0.1);
-                color: {Colors.ORANGE_400};
-                border: 2px solid {Colors.ORANGE_500};
-                border-radius: 24px;
-                padding: 12px 28px;
-                font-weight: 700;
-                font-size: 14px;
-                font-family: {Typography.FONT_FAMILY};
-            }}
-            QPushButton:hover {{
-                background: rgba(255, 165, 0, 0.2);
-                border: 2px solid {Colors.ORANGE_400};
-            }}
-            QPushButton:pressed {{
-                background: rgba(255, 165, 0, 0.3);
-            }}
-        """)
+        self.download_btn.setStyleSheet(StyleHelper.pill_button_outline(Sizes.BTN_HEIGHT_MD))
         self.download_btn.clicked.connect(self._download_update)
         self.download_btn.hide()
         button_row.addWidget(self.download_btn)
@@ -448,16 +391,7 @@ class UpdateView(QWidget):
             self.latest_version = latest_version
             self.status_message.setText(f"Versi baru tersedia: {latest_version}")
             self.version_status.setText(f"⚠  Pembaruan tersedia → {latest_version}")
-            self.version_status.setStyleSheet(f"""
-                color: {Colors.ORANGE_500};
-                font-size: 13px;
-                font-weight: 600;
-                background: rgba(255, 165, 0, 0.1);
-                border: 1px solid rgba(255, 165, 0, 0.25);
-                border-radius: 14px;
-                padding: 6px 18px;
-                font-family: {Typography.FONT_FAMILY};
-            """)
+            self.version_status.setStyleSheet(StyleHelper.status_badge(Colors.ORANGE_500))
             self.download_btn.show()
             self.info_status.findChild(QLabel, "").setText("Tersedia Update")
         else:
@@ -475,16 +409,7 @@ class UpdateView(QWidget):
             self.current_version = self.latest_version
             self.version_display.setText(self.current_version)
             self.version_status.setText("Model terbaru")
-            self.version_status.setStyleSheet(f"""
-                color: {Colors.GREEN_500};
-                font-size: 13px;
-                font-weight: 600;
-                background: rgba(50, 205, 50, 0.1);
-                border: 1px solid rgba(50, 205, 50, 0.25);
-                border-radius: 14px;
-                padding: 6px 18px;
-                font-family: {Typography.FONT_FAMILY};
-            """)
+            self.version_status.setStyleSheet(StyleHelper.status_badge(Colors.GREEN_500))
             self.download_btn.hide()
             self.download_btn.setEnabled(True)
     
