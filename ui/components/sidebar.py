@@ -134,19 +134,16 @@ class Sidebar(QWidget):
         status_label.setStyleSheet(f"color: {Colors.GREEN_500}; font-size: 11px; font-weight: 600;")
         text_layout.addWidget(status_label)
         
-        self.status_text = QLabel("Protected")
-        self.status_text.setStyleSheet(f"color: white; font-size: 18px; font-weight: bold;")
+        self.status_text = QLabel("Unprotected")
+        self.status_text.setStyleSheet(f"color: #FF6B35; font-size: 18px; font-weight: bold;")
         text_layout.addWidget(self.status_text)
-        
+
         header_row.addWidget(text_container, 1)
-        
-        # Pulse indicator
-        pulse = QLabel("●")
-        pulse.setStyleSheet(f"""
-            color: {Colors.GREEN_500};
-            font-size: 12px;
-        """)
-        header_row.addWidget(pulse)
+
+        # Pulse indicator — saved as attribute so update_status() can change its color
+        self.pulse_indicator = QLabel("●")
+        self.pulse_indicator.setStyleSheet(f"color: #FF6B35; font-size: 12px;")
+        header_row.addWidget(self.pulse_indicator)
         
         layout.addLayout(header_row)
         
@@ -276,12 +273,15 @@ class Sidebar(QWidget):
     
     def update_status(self, status: str, is_protected: bool = True):
         """Update protection status
-        
+
         Args:
             status: Status text to display
-            is_protected: If True, show green indicator, else red
+            is_protected: If True, show green; if False, show orange
         """
         self.status_text.setText(status)
-        
-        if not is_protected:
-            self.status_text.setStyleSheet("color: #FF6B35; font-size: 18px; font-weight: bold;")
+        if is_protected:
+            color = Colors.GREEN_500
+        else:
+            color = "#FF6B35"
+        self.status_text.setStyleSheet(f"color: {color}; font-size: 18px; font-weight: bold;")
+        self.pulse_indicator.setStyleSheet(f"color: {color}; font-size: 12px;")

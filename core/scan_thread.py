@@ -14,6 +14,16 @@ from pathlib import Path
 STAGE_DELAY_MS = 0
 FILE_SCAN_DELAY_MS = 0
 MAX_FILES_TO_SCAN = 2000
+COLLECTION_PAUSE_MS = 300
+
+# File extensions included in a full device scan
+SCAN_EXTENSIONS = frozenset({
+    '.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js',
+    '.jar', '.apk', '.msi', '.scr', '.com',
+    '.zip', '.rar', '.7z',
+    '.png', '.jpg', '.jpeg', '.bmp',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+})
 
 
 class ScanThread(QThread):
@@ -83,20 +93,12 @@ class ScanThread(QThread):
         self.progress.emit(5, "Mengumpulkan file untuk dipindai...")
         files_to_scan = []
 
-        scan_extensions = {
-            '.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js',
-            '.jar', '.apk', '.msi', '.scr', '.com',
-            '.zip', '.rar', '.7z',
-            '.png', '.jpg', '.jpeg', '.bmp',
-            '.pdf', '.doc', '.docx', '.xls', '.xlsx'
-        }
-
         try:
             if base_path.is_dir():
                 for f in base_path.rglob("*"):
                     if self.is_canceled:
                         return
-                    if f.is_file() and f.suffix.lower() in scan_extensions:
+                    if f.is_file() and f.suffix.lower() in SCAN_EXTENSIONS:
                         files_to_scan.append(f)
                     if MAX_FILES_TO_SCAN and len(files_to_scan) >= MAX_FILES_TO_SCAN:
                         break
@@ -118,7 +120,7 @@ class ScanThread(QThread):
             return
 
         self.progress.emit(10, f"Ditemukan {total_files} file")
-        self.msleep(300)
+        self.msleep(COLLECTION_PAUSE_MS)
 
         # ===============================
         # STATISTICS

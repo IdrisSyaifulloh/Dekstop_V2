@@ -67,7 +67,7 @@ class ModernWindow(QMainWindow):
     
     def init_ui(self):
         """Initialize UI components"""
-        self.setWindowTitle("🥭 MangoDefend - AI Malware Protection")
+        self.setWindowTitle("MangoDefend - AI Malware Protection")
         self.setGeometry(100, 100, 1400, 900)
         self.setMinimumSize(1200, 800)
         
@@ -248,19 +248,40 @@ class ModernWindow(QMainWindow):
     
     def _run_folder_scan(self, folder_path: str):
         """Start scanning all files in a folder."""
+        if hasattr(self, 'batch_worker') and self.batch_worker and self.batch_worker.isRunning():
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Scan Berjalan", "Scan batch sedang berjalan. Tunggu hingga selesai.")
+            return
         self._start_batch_scan(folder_path=folder_path)
-    
+
     def _run_device_scan(self):
         """Start full device scan."""
-        self._start_batch_scan(full_device=True)
+        if hasattr(self, 'batch_worker') and self.batch_worker and self.batch_worker.isRunning():
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Scan Berjalan", "Scan batch sedang berjalan. Tunggu hingga selesai.")
+            return
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Scan Seluruh Perangkat",
+            "Scan akan memeriksa seluruh file berbahaya di perangkat Anda.\n"
+            "Proses ini mungkin memakan waktu beberapa menit.\n\nLanjutkan?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._start_batch_scan(full_device=True)
     
     def _start_batch_scan(self, folder_path: str = None, full_device: bool = False):
         """Start batch scanning with progress dialog."""
-        if not self.scan_dialog:
-            self.scan_dialog = ScanningDialog(self)
-            self.scan_dialog.set_cancel_callback(self._cancel_scan)
-        
+        # Always create a fresh dialog to avoid stale state from previous scans
+        self.scan_dialog = ScanningDialog(self)
+        self.scan_dialog.set_cancel_callback(self._cancel_scan)
         self.scan_dialog.apply_style(self.is_dark_mode)
+        if full_device:
+            self.scan_dialog.title_label.setText("Scan Seluruh Perangkat")
+            self.scan_dialog.status_label.setText("Mengumpulkan file berbahaya...")
+        else:
+            self.scan_dialog.title_label.setText("Scan Folder")
+            self.scan_dialog.status_label.setText("Mengumpulkan file di folder...")
         self.scan_dialog.start()
         
         self.batch_worker = BatchScanThread(
@@ -298,17 +319,19 @@ class ModernWindow(QMainWindow):
         total = summary.get('scanned', 0)
         malware = summary.get('malware', 0)
         clean = summary.get('clean', 0)
-        
-        icon = QMessageBox.Icon.Warning if malware > 0 else QMessageBox.Icon.Information
+        errors = summary.get('errors', 0)
+
         msg = QMessageBox(self)
-        msg.setIcon(icon)
         msg.setWindowTitle("Hasil Scan")
-        msg.setText(
+        body = (
             f"Scan selesai!\n\n"
-            f"📊 Total file discan: {total}\n"
-            f"✅ Aman: {clean}\n"
-            f"❌ Malware: {malware}\n"
+            f"Total file discan: {total}\n"
+            f" Aman: {clean}\n"
+            f" Malware: {malware}\n"
         )
+        if errors:
+            body += f"Gagal discan: {errors} file\n"
+        msg.setText(body)
         if malware > 0:
             msg.setInformativeText("File malware telah dicatat di riwayat pemindaian.")
         msg.exec()
@@ -324,7 +347,6 @@ class ModernWindow(QMainWindow):
                 try:
                     self.realtime_protection.start()
                     self.sidebar.update_status("Protected", True)
-                    print("✓ Real-time protection started")
                 except Exception as e:
                     print(f"Failed to start protection: {e}")
                     self.protection_view.set_protection_state(False)
@@ -332,11 +354,9 @@ class ModernWindow(QMainWindow):
                 try:
                     self.realtime_protection.stop()
                     self.sidebar.update_status("Unprotected", False)
-                    print("✗ Real-time protection stopped")
                 except Exception as e:
                     print(f"Failed to stop protection: {e}")
         else:
-            print("⚠ Real-time protection not available")
             self.protection_view.set_protection_state(False)
     
     def _on_malware_alert(self, alert_data: dict):
@@ -378,9 +398,9 @@ class ModernWindow(QMainWindow):
                 self.update_view.set_check_result(has_update, latest_version)
                 
                 if has_update:
-                    print(f"✓ Update available: {latest_version}")
+                    print(f"Update available: {latest_version}")
                 else:
-                    print("✓ Already up to date")
+                    print("Already up to date")
             except Exception as e:
                 print(f"Failed to check updates: {e}")
                 self.update_view.set_check_result(False)
@@ -399,11 +419,11 @@ class ModernWindow(QMainWindow):
                     import time
                     time.sleep(0.1)
                 
-                print("✓ Update installed successfully")
+                print("Update installed successfully")
             except Exception as e:
                 print(f"Failed to download update: {e}")
         else:
-            print("⚠ Model updater not available")
+            print("Model updater not available")
     
     # =================================================================
     # INITIALIZATION FROM MAIN.PY

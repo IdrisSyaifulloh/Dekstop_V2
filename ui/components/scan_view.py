@@ -3,6 +3,7 @@ Scan View - File, Folder, and Device Scanner Interface
 Interface for scanning files, folders, or entire device for malware
 """
 import os
+import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QFileDialog, QListWidget,
@@ -31,14 +32,56 @@ class ScanView(QWidget):
         super().__init__(parent)
         self.is_dark = True
         self.setAcceptDrops(True)
+
+        # Label registries — populated in setup_ui(), updated by _apply_theme()
+        self._primary_labels: list[QLabel] = []
+        self._muted_labels:   list[QLabel] = []
+        self._drop_area_ref:  QFrame | None = None
+
         self.setup_ui()
     
+    # ------------------------------------------------------------------
+    # THEME HELPERS
+    # ------------------------------------------------------------------
+
+    def _tp(self) -> str:
+        return Colors.DARK_TEXT_PRIMARY if self.is_dark else Colors.LIGHT_TEXT_PRIMARY
+
+    def _tm(self) -> str:
+        return Colors.DARK_TEXT_MUTED if self.is_dark else Colors.LIGHT_TEXT_MUTED
+
+    def _card_bg(self) -> str:
+        return "rgba(255,255,255,0.04)" if self.is_dark else "rgba(0,0,0,0.04)"
+
+    def _card_border(self) -> str:
+        return "rgba(255,255,255,0.08)" if self.is_dark else "rgba(0,0,0,0.08)"
+
+    def _drop_bg(self) -> str:
+        return "rgba(255,255,255,0.02)" if self.is_dark else "rgba(0,0,0,0.02)"
+
+    def _drop_border(self) -> str:
+        return "rgba(255,255,255,0.10)" if self.is_dark else "rgba(0,0,0,0.15)"
+
+    def _reg_p(self, lbl: QLabel) -> QLabel:
+        self._primary_labels.append(lbl)
+        return lbl
+
+    def _reg_m(self, lbl: QLabel) -> QLabel:
+        self._muted_labels.append(lbl)
+        return lbl
+
+    # ------------------------------------------------------------------
+    # BUILD UI
+    # ------------------------------------------------------------------
+
     def setup_ui(self):
         """Build scan view UI"""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
         content = QWidget()
         content.setStyleSheet("background:transparent;")
@@ -53,25 +96,24 @@ class ScanView(QWidget):
         header_layout.setContentsMargins(40, 36, 40, 36)
         header_layout.setSpacing(16)
         header_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # TEXTED
-        title = QLabel("Smart Malware Scanner")
+
+        title = self._reg_p(QLabel("Smart Malware Scanner"))
         title.setStyleSheet(f"""
-            color:white;font-size:26px;font-weight:bold;
+            color:{self._tp()};font-size:26px;font-weight:bold;
             background:transparent;font-family:{Typography.FONT_FAMILY};
         """)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_layout.addWidget(title)
-        
-        desc = QLabel("Pilih file, folder, atau scan seluruh perangkat\nuntuk mendeteksi malware menggunakan AI")
+
+        desc = self._reg_m(QLabel("Pilih file, folder, atau scan seluruh perangkat\nuntuk mendeteksi malware menggunakan AI"))
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setStyleSheet(f"""
-            color:{Colors.DARK_TEXT_MUTED};font-size:13px;
+            color:{self._tm()};font-size:13px;
             background:transparent;font-family:{Typography.FONT_FAMILY};
         """)
         header_layout.addWidget(desc)
-        
+
         layout.addWidget(header_card)
         
         # ===== SCAN OPTIONS (3 cards) =====
@@ -80,10 +122,10 @@ class ScanView(QWidget):
         
         # File scan card
         file_card = self._create_scan_option(
-            icon="📄",
+            icon="",
             title="Scan File",
             desc="Pilih satu file untuk\ndipindai secara mendalam",
-            btn_text="📁  Pilih File",
+            btn_text="Pilih File",
             accent="rgba(255,165,0,1)",
             callback=self._browse_file
         )
@@ -91,10 +133,10 @@ class ScanView(QWidget):
         
         # Folder scan card
         folder_card = self._create_scan_option(
-            icon="📂",
+            icon="",
             title="Scan Folder",
             desc="Pindai semua file dalam\nfolder yang dipilih",
-            btn_text="📂  Pilih Folder",
+            btn_text="Pilih Folder",
             accent="rgba(139,92,246,1)",
             callback=self._browse_folder
         )
@@ -102,10 +144,10 @@ class ScanView(QWidget):
         
         # Device scan card
         device_card = self._create_scan_option(
-            icon="💻",
+            icon="",
             title="Scan Perangkat",
             desc="Scan seluruh file berbahaya\ndi seluruh perangkat Anda",
-            btn_text="🖥️  Mulai Full Scan",
+            btn_text="Mulai Full Scan",
             accent="rgba(255,107,53,1)",
             callback=self._start_device_scan
         )
@@ -115,25 +157,26 @@ class ScanView(QWidget):
         
         # ===== DRAG & DROP AREA =====
         drop_area = QFrame()
+        self._drop_area_ref = drop_area
         drop_area.setMinimumHeight(80)
         drop_area.setStyleSheet(f"""
             QFrame{{
-                background:rgba(255,255,255,0.02);
-                border:2px dashed rgba(255,255,255,0.1);
+                background:{self._drop_bg()};
+                border:2px dashed {self._drop_border()};
                 border-radius:16px;
             }}
         """)
         drop_layout = QVBoxLayout(drop_area)
         drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        drop_text = QLabel("Atau drag & drop file di sini")
+
+        drop_text = self._reg_m(QLabel("Atau drag & drop file di sini"))
         drop_text.setStyleSheet(f"""
-            color:{Colors.DARK_TEXT_MUTED};font-size:13px;
+            color:{self._tm()};font-size:13px;
             background:transparent;font-family:{Typography.FONT_FAMILY};
         """)
         drop_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         drop_layout.addWidget(drop_text)
-        
+
         layout.addWidget(drop_area)
         
         # ===== SCAN HISTORY =====
@@ -165,19 +208,22 @@ class ScanView(QWidget):
         card_layout.addWidget(icon_lbl)
 
         # Title
-        title_lbl = QLabel(title)
+        title_lbl = self._reg_p(QLabel(title))
         title_lbl.setStyleSheet(f"""
-            color:white;font-size:16px;font-weight:bold;
+            color:{self._tp()};font-size:16px;font-weight:bold;
             background:transparent;font-family:{Typography.FONT_FAMILY};
         """)
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(title_lbl)
 
         # Description
-        desc_lbl = QLabel(desc)
+        desc_lbl = self._reg_m(QLabel(desc))
         desc_lbl.setWordWrap(True)
         desc_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc_lbl.setStyleSheet(StyleHelper.muted_body("11px"))
+        desc_lbl.setStyleSheet(f"""
+            color:{self._tm()};font-size:11px;
+            background:transparent;font-family:{Typography.FONT_FAMILY};
+        """)
         card_layout.addWidget(desc_lbl)
 
         card_layout.addSpacing(4)
@@ -207,9 +253,9 @@ class ScanView(QWidget):
         
         header = QHBoxLayout()
         header.setSpacing(8)
-        ht = QLabel("Riwayat Pemindaian")
+        ht = self._reg_p(QLabel("Riwayat Pemindaian"))
         ht.setStyleSheet(f"""
-            color:white;font-size:16px;font-weight:bold;
+            color:{self._tp()};font-size:16px;font-weight:bold;
             background:transparent;font-family:{Typography.FONT_FAMILY};
         """)
         header.addWidget(ht)
@@ -217,26 +263,12 @@ class ScanView(QWidget):
         layout.addLayout(header)
         
         self.history_list = QListWidget()
-        self.history_list.setStyleSheet(f"""
-            QListWidget{{
-                background:transparent;border:none;
-                color:white;font-size:13px;
-            }}
-            QListWidget::item{{
-                background:rgba(255,255,255,0.04);
-                border:1px solid rgba(255,255,255,0.08);
-                border-radius:10px;
-                padding:12px;margin-bottom:6px;
-            }}
-            QListWidget::item:hover{{
-                background:rgba(255,255,255,0.07);
-                border:1px solid rgba(255,165,0,0.3);
-            }}
-        """)
+        self._history_list_ref = self.history_list
         self.history_list.setMinimumHeight(120)
         self.history_list.addItem("Belum ada riwayat pemindaian")
         layout.addWidget(self.history_list)
-        
+        self._apply_history_list_theme()
+
         return card
     
     # ── Actions ──
@@ -297,3 +329,50 @@ class ScanView(QWidget):
     
     def set_theme(self, is_dark: bool):
         self.is_dark = is_dark
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply current theme colors to all registered widgets."""
+        tp = self._tp()
+        tm = self._tm()
+
+        for lbl in self._primary_labels:
+            lbl.setStyleSheet(re.sub(r'color:[^;]+;', f'color:{tp};', lbl.styleSheet(), count=1))
+
+        for lbl in self._muted_labels:
+            lbl.setStyleSheet(re.sub(r'color:[^;]+;', f'color:{tm};', lbl.styleSheet(), count=1))
+
+        if self._drop_area_ref:
+            self._drop_area_ref.setStyleSheet(f"""
+                QFrame{{
+                    background:{self._drop_bg()};
+                    border:2px dashed {self._drop_border()};
+                    border-radius:16px;
+                }}
+            """)
+
+        self._apply_history_list_theme()
+
+    def _apply_history_list_theme(self):
+        """Apply theme to the history QListWidget."""
+        tp = self._tp()
+        card_bg = self._card_bg()
+        card_border = self._card_border()
+        hover_bg = "rgba(255,255,255,0.07)" if self.is_dark else "rgba(0,0,0,0.06)"
+        if hasattr(self, 'history_list'):
+            self.history_list.setStyleSheet(f"""
+                QListWidget{{
+                    background:transparent;border:none;
+                    color:{tp};font-size:13px;
+                }}
+                QListWidget::item{{
+                    background:{card_bg};
+                    border:1px solid {card_border};
+                    border-radius:10px;
+                    padding:12px;margin-bottom:6px;
+                }}
+                QListWidget::item:hover{{
+                    background:{hover_bg};
+                    border:1px solid rgba(255,165,0,0.3);
+                }}
+            """)

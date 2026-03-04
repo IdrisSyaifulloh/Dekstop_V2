@@ -57,12 +57,15 @@ class BatchScanThread(QThread):
     progress = Signal(int, str)   # percentage, message
 
     # Extensions to scan in batch mode (dangerous types)
-    SCAN_EXTENSIONS = {
+    SCAN_EXTENSIONS = frozenset({
         ".exe", ".dll", ".scr", ".bat", ".cmd",
         ".ps1", ".vbs", ".js", ".jar", ".msi",
         ".com", ".pif", ".wsf", ".hta", ".cpl",
         ".sys", ".drv", ".bin", ".dat",
-    }
+    })
+
+    # Max files to scan per device scan to avoid scanning forever
+    _DEVICE_SCAN_FILE_LIMIT = 2000
 
     def __init__(self, folder_path: str = None, full_device: bool = False):
         super().__init__()
@@ -105,21 +108,28 @@ class BatchScanThread(QThread):
                 self.progress.emit(pct, f"Memindai ({i+1}/{total}): {fname}")
 
                 try:
-                    result = self.scanner.scan_file(file_path, is_full_scan=True)
+                    # For folder scan (not full_device), scan all collected files
+                    # For device scan (full_device), apply extension filter in scanner
+                    result = self.scanner.scan_file(file_path, is_full_scan=self.full_device)
                     if result is None:
-                        continue  # skipped by scanner
+                        continue  # skipped by scanner (device scan extension filter)
 
                     scanned += 1
                     result_type = result.get("result", "Unknown")
 
+                    # Emit ALL results to history (malware and benign)
+                    self.file_scanned.emit(result)
+
                     if result_type == "Malware":
                         malware_count += 1
                         results.append(result)
-                        self.file_scanned.emit(result)
                     else:
                         clean_count += 1
 
-                except Exception:
+                except (OSError, PermissionError):
+                    error_count += 1
+                except Exception:  # noqa: BLE001
+                    # Per-file errors are counted but don't abort the scan
                     error_count += 1
 
             self.progress.emit(100, f"Selesai! {scanned} file discan")
@@ -142,23 +152,30 @@ class BatchScanThread(QThread):
         files = []
 
         if self.full_device:
-            # Scan common user directories
+            # Device scan: target the most common malware hotspots only.
+            # Scanning entire drives takes too long and requires admin rights.
             home = Path.home()
             scan_dirs = [
                 home / "Downloads",
                 home / "Desktop",
                 home / "Documents",
-                Path("C:/Program Files"),
-                Path("C:/Program Files (x86)"),
+                home / "AppData" / "Local" / "Temp",
+                home / "AppData" / "Roaming",
+                home / "AppData" / "Local",
             ]
-            # Also check all drive roots for suspicious files
+            # Add other drive roots (D:, E:, etc.) — root level only, not recurse blindly
             import string
             for letter in string.ascii_uppercase:
+                if letter == "C":
+                    continue
                 drive = Path(f"{letter}:/")
-                if drive.exists() and drive != Path("C:/"):
+                if drive.exists():
                     scan_dirs.append(drive)
         else:
+            # Folder scan: scan ALL files the user selected
             scan_dirs = [Path(self.folder_path)] if self.folder_path else []
+
+        seen: set[str] = set()
 
         for scan_dir in scan_dirs:
             if self.is_canceled:
@@ -169,23 +186,50 @@ class BatchScanThread(QThread):
                 for root, dirs, filenames in os.walk(scan_dir):
                     if self.is_canceled:
                         break
-                    # Skip system/hidden directories
-                    dirs[:] = [d for d in dirs if not d.startswith('.')
-                               and d not in ('$Recycle.Bin', 'System Volume Information',
-                                             'Windows', 'node_modules', '.git',
-                                             '__pycache__', 'venv', '.venv')]
+
+                    # Cap total files for device scan
+                    if self.full_device and len(files) >= self._DEVICE_SCAN_FILE_LIMIT:
+                        return files
+
+                    # Skip system / hidden / irrelevant directories
+                    dirs[:] = [
+                        d for d in dirs
+                        if not d.startswith(".")
+                        and d not in (
+                            "$Recycle.Bin", "System Volume Information",
+                            "Windows", "node_modules", ".git",
+                            "__pycache__", "venv", ".venv",
+                            "WinSxS", "assembly",
+                        )
+                    ]
+
                     for fname in filenames:
                         if self.is_canceled:
                             break
                         fpath = os.path.join(root, fname)
+
+                        # Skip duplicates
+                        if fpath in seen:
+                            continue
+                        seen.add(fpath)
+
                         ext = Path(fname).suffix.lower()
-                        if ext in self.SCAN_EXTENSIONS:
-                            try:
-                                size = os.path.getsize(fpath)
-                                if size > 0 and size < 10 * 1024 * 1024:  # 10MB max
-                                    files.append(fpath)
-                            except (OSError, PermissionError):
-                                pass
+
+                        # For device scan: filter to dangerous extensions only
+                        if self.full_device and ext not in self.SCAN_EXTENSIONS:
+                            continue
+
+                        try:
+                            size = os.path.getsize(fpath)
+                            if 0 < size <= 10 * 1024 * 1024:  # 1 byte – 10 MB
+                                files.append(fpath)
+                        except (OSError, PermissionError):
+                            pass
+
+                        # Cap inside inner loop too
+                        if self.full_device and len(files) >= self._DEVICE_SCAN_FILE_LIMIT:
+                            return files
+
             except (OSError, PermissionError):
                 pass
 

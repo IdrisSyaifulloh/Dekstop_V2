@@ -254,15 +254,11 @@ QWidget#sidebar {{
 }}
 
 QLabel#logoTitle {{
-    color: transparent;
-    font-size: 24px;
+    color: {Colors.ORANGE_400};
+    font-size: 21px;
     font-weight: bold;
     font-family: {Typography.FONT_FAMILY};
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 {Colors.ORANGE_400},
-        stop:0.5 {Colors.ORANGE_300},
-        stop:1 {Colors.RED_500});
-    -qt-background-clip: text;
+    background: transparent;
 }}
 
 QLabel#logoSubtitle {{
@@ -486,15 +482,11 @@ QWidget#sidebar {{
 }}
 
 QLabel#logoTitle {{
-    color: transparent;
-    font-size: 24px;
+    color: {Colors.ORANGE_500};
+    font-size: 21px;
     font-weight: bold;
     font-family: {Typography.FONT_FAMILY};
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 {Colors.ORANGE_500},
-        stop:0.5 {Colors.ORANGE_400},
-        stop:1 {Colors.RED_500});
-    -qt-background-clip: text;
+    background: transparent;
 }}
 
 QLabel#logoSubtitle {{

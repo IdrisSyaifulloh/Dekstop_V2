@@ -21,6 +21,17 @@ except ImportError:
 DEFAULT_MODEL_PATH = "models/Modelv3.onnx"
 CLASS_NAMES = ["Benign", "Malware"]
 
+# Max file size allowed for scanning (10 MB)
+_MAX_FILE_SIZE: int = 10 * 1024 * 1024
+
+# Extensions treated as potentially dangerous executables
+_DANGEROUS_EXTENSIONS = frozenset({
+    ".exe", ".dll", ".scr", ".bat", ".cmd",
+    ".ps1", ".vbs", ".js", ".jar",
+    ".msi", ".com", ".pif", ".wsf", ".hta",
+    ".cpl", ".sys", ".drv", ".bin", ".dat",
+})
+
 
 class MalwareScanner:
     def __init__(self, model_path: str | None = None):
@@ -32,7 +43,7 @@ class MalwareScanner:
         self.session = None
         self.device = "CPU"
         self.converter = FileConverter()
-        self._aggressive = False  # 🔥 mode flag
+        self._aggressive = False
 
     # ====================================================
     # LOAD MODEL
@@ -58,11 +69,11 @@ class MalwareScanner:
         sess_options = ort.SessionOptions()
 
         if aggressive:
-            #  FULL DEVICE SCAN (LEBIH CEPAT)
+            # Full device scan: higher parallelism for faster throughput
             sess_options.intra_op_num_threads = min(4, cpu_count)
             sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL
         else:
-            #  REALTIME / SINGLE SCAN (AMAN)
+            # Realtime / single scan: conservative threading to avoid overhead
             sess_options.intra_op_num_threads = min(2, cpu_count)
             sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
@@ -79,20 +90,13 @@ class MalwareScanner:
     # SCAN FILE
     # ====================================================
     def scan_file(self, file_path: str, is_full_scan: bool = False) -> dict:
-        # 🔥 DI SINI TEMPATNYA
         self.load_model(aggressive=is_full_scan)
 
-        # ===== FILTER FILE (WAJIB) =====
-        DANGEROUS_EXT = (
-            ".exe", ".dll", ".scr", ".bat", ".cmd",
-            ".ps1", ".vbs", ".js", ".jar"
-        )
+        file_ext = Path(file_path).suffix.lower()
+        if is_full_scan and file_ext not in _DANGEROUS_EXTENSIONS:
+            return None
 
-        if is_full_scan and not file_path.lower().endswith(DANGEROUS_EXT):
-            return None  # skip
-
-        MAX_SIZE = 10 * 1024 * 1024
-        if is_full_scan and os.path.getsize(file_path) > MAX_SIZE:
+        if is_full_scan and os.path.getsize(file_path) > _MAX_FILE_SIZE:
             return None
 
         file_path_obj = Path(file_path)
@@ -110,7 +114,7 @@ class MalwareScanner:
         if not is_image and os.path.exists(image_path):
             try:
                 os.remove(image_path)
-            except:
+            except OSError:
                 pass
 
         return {
@@ -154,5 +158,5 @@ class MalwareScanner:
                 for chunk in iter(lambda: f.read(4096), b""):
                     sha256.update(chunk)
             return sha256.hexdigest()
-        except:
+        except OSError:
             return hashlib.sha256(file_path.encode()).hexdigest()

@@ -3,6 +3,7 @@ Model Updater - Automatic model version checking and updating
 Downloads latest ML model from backend server
 """
 import os
+import json
 import hashlib
 import requests
 import shutil
@@ -43,8 +44,6 @@ class ModelUpdater:
         Returns:
             Dict with version info or None
         """
-        import json
-        
         if self.version_file.exists():
             try:
                 with open(self.version_file, 'r') as f:
@@ -237,8 +236,6 @@ class ModelUpdater:
             True if installation successful
         """
         try:
-            import json
-            
             # Backup current model
             if not self.backup_current_model():
                 logger.warning("Backup failed, continuing anyway...")

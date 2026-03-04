@@ -260,12 +260,12 @@ class RealtimeProtection:
         # Stop watchdog observer
         if self._observer:
             self._observer.stop()
-            self._observer.join(timeout=5)
+            self._observer.join(timeout=1)
             self._observer = None
 
         # Wait for scan threads
         for t in self._scan_threads:
-            t.join(timeout=5)
+            t.join(timeout=1)
         self._scan_threads.clear()
 
         # Release any remaining locks
@@ -353,9 +353,68 @@ class RealtimeProtection:
         t_cache.start()
         self._scan_threads.append(t_cache)
 
+        # Pre-emptively lock & scan dangerous files already on disk
+        # so they're blocked BEFORE the user ever clicks them
+        t_prescan = threading.Thread(
+            target=self._prescan_existing_files,
+            daemon=True,
+            name="PreScan"
+        )
+        t_prescan.start()
+        self._scan_threads.append(t_prescan)
+
         self.mode = "pseudo-blocking"
         self.stats["mode"] = "pseudo-blocking"
         logger.info("✅ Real-time protection started (PSEUDO-BLOCKING MODE)")
+
+    def _prescan_existing_files(self):
+        """
+        On startup: walk monitored paths and immediately lock + queue
+        any dangerous file already on disk that hasn't been scanned.
+        This ensures files sitting in Downloads/Desktop are blocked
+        BEFORE the user double-clicks them.
+        """
+        if not self.monitored_paths:
+            return
+
+        logger.info("🔍 Pre-scanning existing files in monitored paths...")
+        count = 0
+
+        for base_path in self.monitored_paths:
+            if not self.running:
+                break
+            try:
+                for root, dirs, filenames in os.walk(base_path):
+                    if not self.running:
+                        break
+                    # Skip hidden / system folders
+                    dirs[:] = [d for d in dirs if not d.startswith('.')
+                               and d not in ('$Recycle.Bin', 'System Volume Information',
+                                             'Windows', '__pycache__', 'venv', '.venv')]
+                    for fname in filenames:
+                        if not self.running:
+                            break
+                        ext = Path(fname).suffix.lower()
+                        if ext not in DANGEROUS_EXTENSIONS:
+                            continue
+                        fpath = os.path.join(root, fname)
+                        if fpath in self.scan_cache:
+                            continue
+                        with self._lock_mutex:
+                            if fpath in self._active_locks:
+                                continue
+                        try:
+                            size = os.path.getsize(fpath)
+                            if size <= 0 or size > 10 * 1024 * 1024:
+                                continue
+                        except OSError:
+                            continue
+                        self._on_new_file(fpath)
+                        count += 1
+            except (OSError, PermissionError):
+                pass
+
+        logger.info(f"✅ Pre-scan queued {count} existing dangerous files")
 
     def _on_new_file(self, file_path: str):
         """
@@ -594,45 +653,56 @@ class RealtimeProtection:
                         if not exe_path:
                             continue
 
+                        # Fast path: skip non-dangerous executables immediately
+                        # (browsers, system tools, etc.) — don't even check cache
+                        exe_ext = Path(exe_path).suffix.lower()
+                        if exe_ext not in DANGEROUS_EXTENSIONS:
+                            # Still check opened file args for all processes
+                            try:
+                                cmdline = proc.cmdline()
+                                if len(cmdline) > 1:
+                                    for arg in cmdline[1:]:
+                                        clean_arg = arg.strip().strip('"').strip("'")
+                                        if clean_arg.startswith('-') or clean_arg.startswith('/'):
+                                            continue
+                                        try:
+                                            clean_arg = os.path.normpath(clean_arg)
+                                        except Exception:
+                                            continue
+                                        if os.path.isfile(clean_arg) and clean_arg not in self.scan_cache:
+                                            arg_ext = Path(clean_arg).suffix.lower()
+                                            if arg_ext in DANGEROUS_EXTENSIONS:
+                                                logger.info(f"📂 Dangerous file opened: {os.path.basename(clean_arg)} by {proc.name()}")
+                                                self._scan_opened_file(proc, pid, clean_arg)
+                            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                pass
+                            continue
+
                         is_system = self._is_system_process(exe_path)
 
                         # ── LAYER A: Scan the executable itself ──
-                        # (Skip for system/trusted processes like notepad.exe)
                         if not is_system and exe_path not in self.scan_cache:
                             self._scan_and_handle_process(proc, pid, exe_path)
-                            continue  # Process was handled (resumed or killed)
+                            continue
 
                         # ── LAYER B: Scan files being OPENED by this process ──
-                        # This runs for ALL processes (including system ones!)
-                        # When user double-clicks a file, Windows runs a program
-                        # with the file path as argument. We scan those files.
                         try:
                             cmdline = proc.cmdline()
                             logger.info(f"🔎 New process: {proc.name()} PID={pid} args={len(cmdline)-1}")
 
                             if len(cmdline) > 1:
                                 for arg in cmdline[1:]:
-                                    # Clean the argument (remove quotes, strip whitespace)
                                     clean_arg = arg.strip().strip('"').strip("'")
-
-                                    # Skip flags/options (start with - or /)
                                     if clean_arg.startswith('-') or clean_arg.startswith('/'):
                                         continue
-
-                                    # Normalize path
                                     try:
                                         clean_arg = os.path.normpath(clean_arg)
                                     except Exception:
                                         continue
-
-                                    # Check if argument is a file path
                                     if os.path.isfile(clean_arg):
-                                        # Skip already scanned
                                         if clean_arg in self.scan_cache:
                                             continue
-
                                         logger.info(f"📂 File opened: {os.path.basename(clean_arg)} by {proc.name()}")
-                                        # Scan the file being opened
                                         self._scan_opened_file(proc, pid, clean_arg)
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
@@ -642,8 +712,8 @@ class RealtimeProtection:
                     except Exception as e:
                         logger.debug(f"Process monitor error for PID {pid}: {e}")
 
-                # Poll interval: 150ms (fast enough to catch new processes)
-                time.sleep(0.15)
+                # Poll interval: 30ms (fast enough to catch new processes before they do damage)
+                time.sleep(0.03)
 
             except Exception as e:
                 logger.error(f"Process monitor error: {e}")
