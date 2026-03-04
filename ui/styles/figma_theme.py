@@ -61,6 +61,172 @@ class Typography:
 
 
 # ============================================================
+# SIZES & SPACING
+# ============================================================
+
+class Sizes:
+    """Layout and sizing constants — single source of truth for all dimensions."""
+    BTN_HEIGHT_SM = 36
+    BTN_HEIGHT_MD = 48
+    BTN_HEIGHT_LG = 52
+    CARD_RADIUS = 24
+    CARD_PADDING_H = 28
+    CARD_PADDING_V = 24
+
+
+# ============================================================
+# STYLE HELPER — Reusable QSS factory methods
+# ============================================================
+
+class StyleHelper:
+    """
+    Centralised QSS factory to eliminate duplicate inline stylesheets.
+
+    Usage:
+        btn.setStyleSheet(StyleHelper.pill_button_primary())
+        label.setStyleSheet(StyleHelper.status_badge(Colors.GREEN_500))
+        header.setStyleSheet(StyleHelper.section_header())
+
+    Rule: Every repeated stylesheet block belongs here, not inlined in view files.
+    """
+
+    # ── Buttons ──────────────────────────────────────────────
+
+    @staticmethod
+    def pill_button_primary(height: int = Sizes.BTN_HEIGHT_MD) -> str:
+        """Orange-to-red gradient pill button (primary action)."""
+        r = height // 2
+        return f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {Colors.ORANGE_500}, stop:1 {Colors.RED_500});
+                color: white;
+                border: none;
+                border-radius: {r}px;
+                font-weight: 700;
+                font-size: 14px;
+                font-family: {Typography.FONT_FAMILY};
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {Colors.ORANGE_400}, stop:1 {Colors.RED_400});
+            }}
+            QPushButton:pressed {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {Colors.RED_400}, stop:1 {Colors.RED_600});
+            }}
+            QPushButton:disabled {{
+                background: rgba(255,255,255,0.1);
+                color: rgba(255,255,255,0.3);
+            }}
+        """
+
+    @staticmethod
+    def pill_button_danger(height: int = Sizes.BTN_HEIGHT_MD) -> str:
+        """Red gradient pill button for destructive/deactivate actions."""
+        r = height // 2
+        return f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {Colors.RED_500}, stop:1 {Colors.RED_600});
+                color: white;
+                border: none;
+                border-radius: {r}px;
+                font-weight: 700;
+                font-size: 14px;
+                font-family: {Typography.FONT_FAMILY};
+            }}
+            QPushButton:hover {{
+                background: {Colors.RED_600};
+            }}
+            QPushButton:pressed {{
+                background: {Colors.RED_600};
+                opacity: 0.9;
+            }}
+        """
+
+    @staticmethod
+    def pill_button_outline(height: int = Sizes.BTN_HEIGHT_MD) -> str:
+        """Orange outline pill button for secondary actions."""
+        r = height // 2
+        return f"""
+            QPushButton {{
+                background: rgba(255, 165, 0, 0.1);
+                color: {Colors.ORANGE_400};
+                border: 2px solid {Colors.ORANGE_500};
+                border-radius: {r}px;
+                font-weight: 700;
+                font-size: 14px;
+                font-family: {Typography.FONT_FAMILY};
+            }}
+            QPushButton:hover {{
+                background: rgba(255, 165, 0, 0.2);
+                border: 2px solid {Colors.ORANGE_400};
+            }}
+            QPushButton:pressed {{
+                background: rgba(255, 165, 0, 0.3);
+            }}
+        """
+
+    # ── Labels ───────────────────────────────────────────────
+
+    @staticmethod
+    def section_header() -> str:
+        """White bold 18px section heading label."""
+        return f"""
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            background: transparent;
+            font-family: {Typography.FONT_FAMILY};
+        """
+
+    @staticmethod
+    def muted_body(size: str = "13px") -> str:
+        """Muted subtitle / description text."""
+        return f"""
+            color: {Colors.DARK_TEXT_MUTED};
+            font-size: {size};
+            background: transparent;
+            font-family: {Typography.FONT_FAMILY};
+        """
+
+    # ── Badges ───────────────────────────────────────────────
+
+    @staticmethod
+    def status_badge(color: str) -> str:
+        """
+        Solid-border pill badge.
+        Pass any Colors constant, e.g. Colors.GREEN_500 or Colors.ORANGE_500.
+        """
+        return f"""
+            color: {color};
+            font-size: 13px;
+            font-weight: 700;
+            background: transparent;
+            border: 2px solid {color};
+            border-radius: 9999px;
+            padding: 6px 20px;
+            font-family: {Typography.FONT_FAMILY};
+        """
+
+    @staticmethod
+    def tag_badge() -> str:
+        """Small orange pill tag (e.g. 'Pseudo-Blocking', 'ONNX Runtime')."""
+        return f"""
+            color: {Colors.ORANGE_400};
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            background: rgba(255, 165, 0, 0.15);
+            border: 1px solid rgba(255, 165, 0, 0.3);
+            border-radius: 9999px;
+            padding: 3px 10px;
+            font-family: {Typography.FONT_FAMILY};
+        """
+
+
+# ============================================================
 # DARK THEME STYLESHEET
 # ============================================================
 
