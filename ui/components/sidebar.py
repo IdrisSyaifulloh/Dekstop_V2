@@ -250,7 +250,7 @@ class Sidebar(QWidget):
         layout.addWidget(threats_card)
         
         # Theme toggle button
-        self.theme_btn = QPushButton("🌙  Dark Mode")
+        self.theme_btn = QPushButton(" Dark Mode")
         self.theme_btn.setObjectName("secondaryButton")
         self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.theme_btn.setMinimumHeight(48)
@@ -264,9 +264,9 @@ class Sidebar(QWidget):
         self.is_dark = not self.is_dark
         
         if self.is_dark:
-            self.theme_btn.setText("🌙  Dark Mode")
+            self.theme_btn.setText(" Dark Mode")
         else:
-            self.theme_btn.setText("☀️  Light Mode")
+            self.theme_btn.setText(" Light Mode")
         
         self.theme_toggled.emit(self.is_dark)
     

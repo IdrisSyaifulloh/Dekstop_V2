@@ -7,11 +7,52 @@ import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QFileDialog, QListWidget,
-    QListWidgetItem, QScrollArea, QGridLayout
+    QListWidgetItem, QScrollArea, QGridLayout, QApplication
 )
 from PySide6.QtCore import Qt, Signal, QEvent
 from ui.widgets.glass_card import GlassCard
 from ui.styles.figma_theme import Colors, Typography, StyleHelper
+
+
+class _DropScrollArea(QScrollArea):
+    """
+    QScrollArea subclass with built-in drag-and-drop support.
+    Forwards dropped URLs to the parent ScanView regardless which
+    child widget the cursor is over — reliable in PyInstaller frozen builds.
+    """
+
+    def __init__(self, scan_view, parent=None):
+        super().__init__(parent)
+        self._scan_view = scan_view
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        event.accept()
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if urls:
+                path = urls[0].toLocalFile()
+                if os.path.isdir(path):
+                    self._scan_view.folder_scan_requested.emit(path)
+                else:
+                    self._scan_view.scan_requested.emit(path)
+                event.acceptProposedAction()
+        else:
+            event.ignore()
 
 
 class ScanView(QWidget):
@@ -32,10 +73,6 @@ class ScanView(QWidget):
         super().__init__(parent)
         self.is_dark = True
         self.setAcceptDrops(True)
-
-        # We'll install an event filter on the scroll area so drops that
-        # land anywhere inside the view are forwarded back to ScanView.
-        # Needed for PyInstaller-frozen builds where Qt routing is stricter.
         self._scroll_ref = None
 
         # Label registries — populated in setup_ui(), updated by _apply_theme()
@@ -81,19 +118,12 @@ class ScanView(QWidget):
 
     def setup_ui(self):
         """Build scan view UI"""
-        scroll = QScrollArea()
+        scroll = _DropScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # Enable drops on the scroll area + its viewport so that drag events
-        # are not swallowed before they can reach ScanView.
-        scroll.setAcceptDrops(True)
-        scroll.viewport().setAcceptDrops(True)
-        scroll.installEventFilter(self)
-        scroll.viewport().installEventFilter(self)
         self._scroll_ref = scroll
         
         content = QWidget()
@@ -199,9 +229,23 @@ class ScanView(QWidget):
         layout.addStretch()
         
         scroll.setWidget(content)
+
+        # Propagate acceptDrops=False on every child widget so that drag
+        # events are not silently consumed — they will bubble up to
+        # _DropScrollArea which handles them.
+        self._disable_child_drops(content)
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(scroll)
+
+    @staticmethod
+    def _disable_child_drops(widget: QWidget):
+        """Recursively set acceptDrops=False on all descendants so drag
+        events propagate up to the _DropScrollArea instead of being silently
+        rejected by intermediate child widgets."""
+        for child in widget.findChildren(QWidget):
+            child.setAcceptDrops(False)
     
     def _create_scan_option(self, icon: str, title: str, desc: str,
                             btn_text: str, accent: str, callback) -> GlassCard:
@@ -306,23 +350,7 @@ class ScanView(QWidget):
         """Start full device scan"""
         self.device_scan_requested.emit()
     
-    # ── Drag & Drop ──
-
-    def eventFilter(self, obj, event):
-        """Forward drag events from child widgets (scroll area, viewport) to self."""
-        t = event.type()
-        if t == QEvent.Type.DragEnter:
-            self.dragEnterEvent(event)
-            return True
-        if t == QEvent.Type.DragMove:
-            self.dragMoveEvent(event)
-            return True
-        if t == QEvent.Type.Drop:
-            self.dropEvent(event)
-            return True
-        if t == QEvent.Type.DragLeave:
-            return True
-        return super().eventFilter(obj, event)
+    # ── Drag & Drop (on ScanView itself, backup for when scroll area is not hit) ──
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -331,7 +359,6 @@ class ScanView(QWidget):
             event.ignore()
 
     def dragMoveEvent(self, event):
-        """Must accept dragMoveEvent or Qt will revert to block cursor."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
