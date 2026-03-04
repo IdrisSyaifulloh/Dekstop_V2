@@ -2,6 +2,7 @@
 Scan View - File, Folder, and Device Scanner Interface
 Interface for scanning files, folders, or entire device for malware
 """
+import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QFileDialog, QListWidget,
@@ -9,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from ui.widgets.glass_card import GlassCard
-from ui.styles.figma_theme import Colors, Typography
+from ui.styles.figma_theme import Colors, Typography, StyleHelper
 
 
 class ScanView(QWidget):
@@ -151,73 +152,49 @@ class ScanView(QWidget):
         """Create a scan option card."""
         card = GlassCard()
         card.setMinimumHeight(220)
-        
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(24, 24, 24, 24)
-        cl.setSpacing(12)
-        cl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(24, 24, 24, 24)
+        card_layout.setSpacing(12)
+        card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         # Icon
-        ic = QLabel(icon)
-        ic.setStyleSheet("font-size:36px;background:transparent;")
-        ic.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        cl.addWidget(ic)
-        
+        icon_lbl = QLabel(icon)
+        icon_lbl.setStyleSheet("font-size:36px;background:transparent;")
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(icon_lbl)
+
         # Title
-        tl = QLabel(title)
-        tl.setStyleSheet(f"""
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(f"""
             color:white;font-size:16px;font-weight:bold;
             background:transparent;font-family:{Typography.FONT_FAMILY};
         """)
-        tl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        cl.addWidget(tl)
-        
+        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(title_lbl)
+
         # Description
-        dl = QLabel(desc)
-        dl.setWordWrap(True)
-        dl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        dl.setStyleSheet(f"""
-            color:{Colors.DARK_TEXT_MUTED};font-size:11px;
-            background:transparent;font-family:{Typography.FONT_FAMILY};
-        """)
-        cl.addWidget(dl)
-        
-        cl.addSpacing(4)
-        
+        desc_lbl = QLabel(desc)
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        desc_lbl.setStyleSheet(StyleHelper.muted_body("11px"))
+        card_layout.addWidget(desc_lbl)
+
+        card_layout.addSpacing(4)
+
         # Button
         btn = QPushButton(btn_text)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setMinimumWidth(160)
         btn.setFixedHeight(42)
-         
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(255, 165, 0, 0.15);
-                border: 1px solid rgba(255, 165, 0, 0.4);
-                border-radius: 14px;
-                padding: 10px 20px;
-                color: {Colors.ORANGE_400};
-                font-weight: 600;
-                font-size: 13px;
-                font-size: 14px;
-                font-family: {Typography.FONT_FAMILY};
-            }}
-            QPushButton:hover {{
-                background: rgba(255, 165, 0, 0.25);
-                border: 1px solid rgba(255, 165, 0, 0.6);
-            }}
-            QPushButton:pressed {{
-                background: rgba(255, 165, 0, 0.35);
-            }}  
-
-        """) 
+        btn.setStyleSheet(StyleHelper.pill_button_outline(42))
         btn.clicked.connect(callback)
-        
+
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_row.addWidget(btn)
-        cl.addLayout(btn_row)
-        
+        card_layout.addLayout(btn_row)
+
         return card
     
     def _create_history_section(self) -> GlassCard:
@@ -295,7 +272,6 @@ class ScanView(QWidget):
             urls = event.mimeData().urls()
             if urls:
                 path = urls[0].toLocalFile()
-                import os
                 if os.path.isdir(path):
                     self.folder_scan_requested.emit(path)
                 else:
