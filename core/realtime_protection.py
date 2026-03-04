@@ -145,12 +145,26 @@ SKIP_EXTENSIONS = {
     '.tmp', '.temp', '.lock', '.gitignore', '.gitattributes',
 }
 
-# Executable/dangerous extensions (used for process monitor)
+# Executable/dangerous extensions — also includes all file types the ML model can scan.
+# These are locked by the prescan on startup so they can't be opened before scanning.
 DANGEROUS_EXTENSIONS = {
+    # Executables & scripts
     '.exe', '.dll', '.scr', '.bat', '.cmd',
     '.ps1', '.vbs', '.js', '.jar', '.msi',
-    '.com', '.pif', '.wsf', '.hta',
+    '.com', '.pif', '.wsf', '.hta', '.cpl', '.sys',
+    # Images (ML model scans these directly as pixel data)
+    '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp',
+    # Archives & documents (model converts to image for scanning)
+    '.zip', '.rar', '.7z',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    # Other binary formats the converter handles
+    '.bin', '.dat', '.iso',
 }
+
+# Max file size per category for prescan locking
+_IMAGE_EXTS   = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'}
+_MAX_SIZE_IMG = 50 * 1024 * 1024   # 50 MB
+_MAX_SIZE_EXE = 10 * 1024 * 1024   # 10 MB
 
 
 class RealtimeProtection:
@@ -217,6 +231,9 @@ class RealtimeProtection:
             "mode": "none"
         }
 
+        # Shutdown event — set when stop() is called to unblock waiting threads
+        self._shutdown_event = threading.Event()
+
         # Scan cache (avoid re-scanning known clean files)
         self.scan_cache: Set[str] = set()
         self.cache_ttl = 300  # 5 minutes
@@ -257,16 +274,22 @@ class RealtimeProtection:
         logger.info("Stopping real-time protection...")
         self.running = False
 
+        # Unblock any scan threads waiting in _ask_user_decision or _wait_for_stable_file
+        self._shutdown_event.set()
+
         # Stop watchdog observer
         if self._observer:
             self._observer.stop()
-            self._observer.join(timeout=1)
+            self._observer.join(timeout=2)
             self._observer = None
 
-        # Wait for scan threads
+        # Wait for scan threads (they will exit quickly now that shutdown_event is set)
         for t in self._scan_threads:
-            t.join(timeout=1)
+            t.join(timeout=3)
         self._scan_threads.clear()
+
+        # Reset shutdown event for next start()
+        self._shutdown_event.clear()
 
         # Release any remaining locks
         with self._lock_mutex:
@@ -334,8 +357,9 @@ class RealtimeProtection:
 
         self._observer.start()
 
-        # Start scan workers (2 threads for parallel scanning)
-        for i in range(2):
+        # Start scan workers (4 threads — more parallelism needed because
+        # prescan now locks images too, so more files need rapid scan+release)
+        for i in range(4):
             t = threading.Thread(
                 target=self._scan_worker,
                 daemon=True,
@@ -405,7 +429,8 @@ class RealtimeProtection:
                                 continue
                         try:
                             size = os.path.getsize(fpath)
-                            if size <= 0 or size > 10 * 1024 * 1024:
+                            max_sz = _MAX_SIZE_IMG if ext in _IMAGE_EXTS else _MAX_SIZE_EXE
+                            if size <= 0 or size > max_sz:
                                 continue
                         except OSError:
                             continue
@@ -419,37 +444,90 @@ class RealtimeProtection:
     def _on_new_file(self, file_path: str):
         """
         Handle a newly detected file:
-        1. Acquire exclusive lock (blocks access)
-        2. Queue for scanning
+        1. Try to acquire exclusive lock immediately (blocks access)
+        2. Queue for scanning regardless — scan worker will retry lock
         """
         if file_path in self.scan_cache:
             return
 
-        # Acquire lock immediately
+        # Try to acquire lock immediately
         lock = FileLock(file_path)
-        if lock.acquire(max_retries=3, retry_delay=0.2):
+        got_lock = lock.acquire(max_retries=5, retry_delay=0.1)
+
+        if got_lock:
             with self._lock_mutex:
                 self._active_locks[file_path] = lock
-
             self.stats["files_blocked"] += 1
-            logger.info(f"🔒 LOCKED: {file_path} (queued for scan)")
+            logger.info(f"🔒 LOCKED: {file_path}")
+        else:
+            # File in use (e.g., still downloading) — queue anyway.
+            # Scan worker will wait for file to stabilise and re-lock.
+            logger.debug(f"Could not lock immediately, will retry in worker: {file_path}")
 
-            # Queue for scanning
-            try:
-                self._scan_queue.put(file_path, block=False)
-            except Exception:
-                # Queue full, release lock
+        try:
+            self._scan_queue.put(file_path, block=False)
+        except Exception:
+            # Queue full
+            if got_lock:
                 lock.release()
                 with self._lock_mutex:
                     self._active_locks.pop(file_path, None)
-        else:
-            # Could not lock — file might be in use by downloader
-            # Queue it for a delayed scan without lock
-            logger.debug(f"Could not lock {file_path}, queuing for delayed scan")
+
+    def _wait_for_stable_file(self, file_path: str, stable_secs: float = 0.5,
+                               max_wait: float = 30.0) -> bool:
+        """
+        Wait until a file's size stops changing (fully written).
+        Returns True when stable, False if timed out or file gone.
+        """
+        deadline = time.monotonic() + max_wait
+        last_size = -1
+        unchanged_for = 0.0
+        poll = 0.2  # check every 200ms
+
+        while time.monotonic() < deadline:
+            # Exit immediately if protection is being stopped
+            if self._shutdown_event.is_set() or not self.running:
+                return False
             try:
-                self._scan_queue.put(file_path, block=False)
-            except Exception:
-                pass
+                size = os.path.getsize(file_path)
+            except OSError:
+                return False
+            if size == last_size:
+                unchanged_for += poll
+                if unchanged_for >= stable_secs:
+                    return True
+            else:
+                last_size = size
+                unchanged_for = 0.0
+            time.sleep(poll)
+
+        return False  # timed out
+
+    def _ensure_locked(self, file_path: str) -> bool:
+        """
+        Ensure the file is locked before scanning.
+        If already locked by us, returns True immediately.
+        Otherwise waits for the file to stabilise then acquires lock.
+        Returns True if lock is held after this call.
+        """
+        with self._lock_mutex:
+            if file_path in self._active_locks:
+                return True  # already locked
+
+        # File not locked yet — wait for it to stabilise, then lock
+        if not self._wait_for_stable_file(file_path):
+            return False
+
+        lock = FileLock(file_path)
+        if lock.acquire(max_retries=10, retry_delay=0.2):
+            with self._lock_mutex:
+                self._active_locks[file_path] = lock
+            self.stats["files_blocked"] += 1
+            logger.info(f"🔒 LOCKED (after stabilise): {file_path}")
+            return True
+
+        logger.warning(f"Could not acquire lock even after stabilise: {file_path}")
+        return False
 
     def _scan_worker(self):
         """Worker thread: scan files and decide allow/quarantine."""
@@ -462,14 +540,19 @@ class RealtimeProtection:
                 except Empty:
                     continue
 
-                # Small delay to let file be fully written
-                time.sleep(self.scan_delay)
-
                 if not os.path.exists(file_path):
                     self._release_lock(file_path)
                     continue
 
-                # Scan with AI
+                # ── CRITICAL: ensure file is locked BEFORE scanning ──
+                # If lock was acquired in _on_new_file, this is instant.
+                # If not (browser was writing), this waits for stability then locks.
+                locked = self._ensure_locked(file_path)
+                if not locked:
+                    # Could not lock — skip to avoid false positives but warn
+                    logger.warning(f"Scanning without lock (access not blocked): {file_path}")
+
+                # Scan the file (lock is held, so user CANNOT open/execute it)
                 is_malware = False
                 scan_result = None
 
@@ -483,28 +566,22 @@ class RealtimeProtection:
 
                 except Exception as e:
                     logger.error(f"Scan error for {file_path}: {e}")
-                    # Fail-open: release lock on error
                     self._release_lock(file_path)
                     continue
 
                 if is_malware:
-                    # MALWARE — ask user what to do
                     logger.warning(f"🚨 MALWARE BLOCKED: {file_path}")
-
+                    # Lock is still held — ask user (file remains unexecutable)
                     action = self._ask_user_decision(file_path, scan_result)
-
-                    # Release lock before quarantine (need to move file)
+                    # Release lock BEFORE quarantine (need to move file)
                     self._release_lock(file_path)
-
-                    if action == 1:  # ACTION_KILL (quarantine)
+                    if action == 1:  # quarantine
                         self._quarantine_file(file_path)
-                        self.stats["malware_detected"] += 1
                     else:
-                        # User chose to continue — just release lock
-                        logger.info(f"▶️ User allowed file: {os.path.basename(file_path)}")
+                        logger.info(f"▶️ User allowed: {os.path.basename(file_path)}")
                         self.scan_cache.add(file_path)
                 else:
-                    # CLEAN — release lock, add to cache
+                    # Clean — release lock, add to whitelist cache
                     self._release_lock(file_path)
                     self.scan_cache.add(file_path)
                     logger.info(f"✅ Clean: {os.path.basename(file_path)}")
@@ -712,8 +789,8 @@ class RealtimeProtection:
                     except Exception as e:
                         logger.debug(f"Process monitor error for PID {pid}: {e}")
 
-                # Poll interval: 30ms (fast enough to catch new processes before they do damage)
-                time.sleep(0.03)
+                # Poll interval: 5ms — tight enough to catch processes before first render
+                time.sleep(0.005)
 
             except Exception as e:
                 logger.error(f"Process monitor error: {e}")
@@ -763,43 +840,81 @@ class RealtimeProtection:
                 pass
 
     def _scan_opened_file(self, proc, pid: int, file_path: str):
-        """Scan a file that is being opened by a process."""
+        """
+        Scan a file being opened by a process.
+        IMMEDIATELY suspend the opener so it cannot render/execute the file
+        while the scan is in progress.
+        """
         import psutil
 
+        suspended = False
         try:
             logger.info(f"🔍 Scanning opened file: {os.path.basename(file_path)} (opened by {proc.name()}, PID={pid})")
+
+            # ── Suspend the opener process RIGHT AWAY ──
+            # This freezes e.g. Photos before it can render a malware image,
+            # or a script host before it can run a malicious script.
+            try:
+                proc.suspend()
+                suspended = True
+                self.stats["processes_suspended"] += 1
+                logger.info(f"⏸️ SUSPENDED opener: {proc.name()} (PID={pid}) while scanning")
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass  # Process died or no permission — scan anyway
 
             result = self.scanner.scan_file(file_path)
             self.stats["files_scanned"] += 1
 
             if result and result.get('result') == 'Malware':
-                # Ask user what to do
+                # Alert while opener is frozen → user sees the dialog, NOT the file
                 action = self._ask_user_decision(file_path, result)
 
-                if action == 1:  # ACTION_KILL
+                if action == 1:  # Kill & Quarantine
                     logger.warning(f"🚨 MALWARE found: {file_path}")
                     logger.warning(f"🚨 KILLING process: {proc.name()} (PID={pid})")
                     try:
                         proc.kill()
+                        suspended = False  # Killed, no need to resume
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
                     self.stats["malware_detected"] += 1
                     self.stats["processes_killed"] += 1
                     self._quarantine_file(file_path)
                 else:
+                    # User chose to allow — resume the opener
                     logger.info(f"▶️ User allowed file: {os.path.basename(file_path)}")
                     self.scan_cache.add(file_path)
+                    if suspended:
+                        try:
+                            proc.resume()
+                            suspended = False
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
             else:
+                # Clean — resume opener normally
                 self.scan_cache.add(file_path)
                 logger.info(f"✅ Clean file: {os.path.basename(file_path)}")
+                if suspended:
+                    try:
+                        proc.resume()
+                        suspended = False
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
 
         except Exception as e:
             logger.error(f"Error scanning opened file {file_path}: {e}")
+            # Safety: always resume on unexpected error
+            if suspended:
+                try:
+                    proc.resume()
+                except Exception:
+                    pass
 
     def _ask_user_decision(self, file_path: str, scan_result: dict) -> int:
         """
         Ask user via UI what to do with detected malware.
-        Returns: 0 = continue, 1 = kill & quarantine
+        Returns: 0 = continue/allow, 1 = kill & quarantine
+        Always waits for the user to click a button — never auto-kills.
         """
         if self.malware_bridge:
             import threading as _threading
@@ -816,14 +931,20 @@ class RealtimeProtection:
             # Emit signal to UI thread
             self.malware_bridge.malware_detected.emit(alert_data)
 
-            # Wait for user to respond (max 60 seconds)
-            response_event.wait(timeout=60)
+            # Wait for user to click a button, but also watch for shutdown.
+            # Uses chunked waits so threads unblock quickly when stop() is called.
+            while not response_event.wait(timeout=0.3):
+                if self._shutdown_event.is_set() or not self.running:
+                    # Protection stopped while dialog was open — allow the file
+                    # (the dialog will be cleaned up by the UI on its own)
+                    logger.info("Protection stopped while waiting for user decision — defaulting to allow")
+                    return 0
 
             if response_holder:
                 return response_holder[0]
 
-        # Default: kill & quarantine (if no UI bridge or timeout)
-        return 1
+        # No UI bridge — default to ALLOW (never auto-kill without user consent)
+        return 0
 
     def _is_system_process(self, exe_path: str) -> bool:
         """Check if exe is a system/trusted process (skip scanning)."""

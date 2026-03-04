@@ -351,11 +351,16 @@ class ModernWindow(QMainWindow):
                     print(f"Failed to start protection: {e}")
                     self.protection_view.set_protection_state(False)
             else:
-                try:
-                    self.realtime_protection.stop()
-                    self.sidebar.update_status("Unprotected", False)
-                except Exception as e:
-                    print(f"Failed to stop protection: {e}")
+                # Run stop() on a background thread — it joins worker threads
+                # which could be blocked; calling from UI thread causes freeze.
+                import threading as _threading
+                def _do_stop():
+                    try:
+                        self.realtime_protection.stop()
+                    except Exception as e:
+                        print(f"Failed to stop protection: {e}")
+                _threading.Thread(target=_do_stop, daemon=True, name="StopProtection").start()
+                self.sidebar.update_status("Unprotected", False)
         else:
             self.protection_view.set_protection_state(False)
     
