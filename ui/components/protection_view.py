@@ -75,7 +75,7 @@ class ProtectionView(QWidget):
         """)
         shield_icon_layout = QVBoxLayout(self.shield_container)
         shield_icon_layout.setContentsMargins(0, 0, 0, 0)
-        self.shield_icon = QLabel("🛡️")
+        self.shield_icon = QLabel("")
         self.shield_icon.setStyleSheet("font-size: 56px; background: transparent;")
         self.shield_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         shield_icon_layout.addWidget(self.shield_icon)
