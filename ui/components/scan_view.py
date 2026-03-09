@@ -177,7 +177,7 @@ class ScanView(QWidget):
         # Folder scan card
         folder_card = self._create_scan_option(
             icon="",
-            title="Scan Folder",
+            title="Folder Scanner",
             desc="Pindai semua file dalam\nfolder yang dipilih",
             btn_text="Pilih Folder",
             accent="rgba(139,92,246,1)",
