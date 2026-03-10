@@ -85,18 +85,19 @@ class ResultDialog(QWidget):
         status_row.setSpacing(15)
         status_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        icon_text = "!" if not is_safe else ""
-        status_icon = QLabel(icon_text)
-        status_icon.setFixedSize(50, 50)
-        status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_icon.setStyleSheet(f"""
-            font-size: 32px;
-            font-weight: bold;
-            color: white;
-            background: {'rgba(50, 205, 50, 1)' if is_safe else 'rgba(239, 68, 68, 1)'};
-            border-radius: 25px;
-        """)
-        status_row.addWidget(status_icon)
+        # HAPUS status_icon (bulatan merah)
+        # icon_text = "" if not is_safe else ""
+        # status_icon = QLabel(icon_text)
+        # status_icon.setFixedSize(50, 50)
+        # status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # status_icon.setStyleSheet(f"""
+        #     font-size: 32px;
+        #     font-weight: bold;
+        #     color: white;
+        #     background: {'rgba(50, 205, 50, 1)' if is_safe else 'rgba(239, 68, 68, 1)'};
+        #     border-radius: 25px;
+        # """)
+        # status_row.addWidget(status_icon)
 
         # Title
         title_text = "File Aman" if is_safe else "Terdeteksi Ancaman"
@@ -105,7 +106,7 @@ class ResultDialog(QWidget):
             font-size: 24px;
             font-weight: 600;
             color: white;
-            font-family: 'Segoe UI', Arial, sans-serif;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
         """)
         status_row.addWidget(title_label)
         status_row.addStretch()
@@ -141,7 +142,7 @@ class ResultDialog(QWidget):
             font-size: 11px;
             font-weight: 600;
             color: #6B7280;
-            font-family: 'SF Pro Display';
+            font-family: 'Inter', 'Segoe UI', sans-serif;
             letter-spacing: 0.5px;
         """)
         file_layout.addWidget(file_header)
@@ -159,7 +160,7 @@ class ResultDialog(QWidget):
             font-size: 14px;
             font-weight: 500;
             color: #1F2937;
-            font-family: 'SF Pro Display', monospace;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
             padding: 4px 0;
         """)
         file_layout.addWidget(file_name)
@@ -185,7 +186,7 @@ class ResultDialog(QWidget):
             font-size: 11px;
             font-weight: 600;
             color: #6B7280;
-            font-family: 'SF Pro Display';
+            font-family: 'Inter', 'Segoe UI', sans-serif;
             letter-spacing: 0.5px;
         """)
         detect_layout.addWidget(detect_header)
@@ -205,7 +206,7 @@ class ResultDialog(QWidget):
             font-size: 20px;
             font-weight: 700;
             color: {'#32CD32' if is_safe else '#FF8C00'};
-            font-family: 'Segoe UI', Arial, sans-serif;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
         """)
         detect_layout.addWidget(detect_value)
 
@@ -218,7 +219,7 @@ class ResultDialog(QWidget):
                 details_label.setStyleSheet("""
                     font-size: 12px;
                     color: #6B7280;
-                    font-family: 'SF Pro Display';
+                    font-family: 'Inter', 'Segoe UI', sans-serif;
                     margin-top: 8px;
                 """)
                 detect_layout.addWidget(details_label)
@@ -232,22 +233,21 @@ class ResultDialog(QWidget):
         """)
         content_layout.addWidget(detect_card)
 
-        # Warning banner untuk malware - warna konsisten orange
-        if not is_safe:
-            warning = QFrame()
-            warning.setObjectName("warningBanner")
-            warn_layout = QHBoxLayout(warning)
-            warn_layout.setContentsMargins(16, 14, 16, 14)
-            warn_layout.setSpacing(12)
-
-            warning.setStyleSheet("""
-                QFrame#warningBanner {
-                    background: rgba(255, 165, 0, 0.1);
-                    border-left: 4px solid #FFA500;
-                    border-radius: 10px;
-                }
-            """)
-            content_layout.addWidget(warning)
+        # HAPUS warning banner yang kosong
+        # if not is_safe:
+        #     warning = QFrame()
+        #     warning.setObjectName("warningBanner")
+        #     warn_layout = QHBoxLayout(warning)
+        #     warn_layout.setContentsMargins(16, 14, 16, 14)
+        #     warn_layout.setSpacing(12)
+        #     warning.setStyleSheet("""
+        #         QFrame#warningBanner {
+        #             background: rgba(255, 165, 0, 0.1);
+        #             border-left: 4px solid #FFA500;
+        #             border-radius: 10px;
+        #         }
+        #     """)
+        #     content_layout.addWidget(warning)
 
         card_layout.addWidget(content)
 
@@ -268,7 +268,7 @@ class ResultDialog(QWidget):
         device_info.setStyleSheet("""
             font-size: 12px;
             color: #9CA3AF;
-            font-family: 'SF Pro Display';
+            font-family: 'Inter', 'Segoe UI', sans-serif;
         """)
         footer_layout.addWidget(device_info)
         footer_layout.addStretch()
@@ -286,7 +286,7 @@ class ResultDialog(QWidget):
                 border-radius: 8px;
                 font-weight: 600;
                 font-size: 14px;
-                font-family: 'SF Pro Display';
+                font-family: 'Inter', 'Segoe UI', sans-serif;
             }}
             QPushButton:hover {{
                 background: {'#90EE90' if is_safe else '#FFB732'};
