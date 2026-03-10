@@ -48,8 +48,8 @@ class Colors:
 
 class Typography:
     """Font definitions"""
-    FONT_FAMILY = "'SF Pro Display'"
-    FONT_FAMILY_MONO = "'SF Mono'"
+    FONT_FAMILY = "'Inter', 'Segoe UI', sans-serif"
+    FONT_FAMILY_MONO = "'Inter', 'Segoe UI', monospace"
     
     # Sizes
     SIZE_H1 = "32px"
