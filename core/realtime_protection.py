@@ -205,7 +205,7 @@ class RealtimeProtection:
         if quarantine_dir:
             self.quarantine_dir = Path(quarantine_dir)
         else:
-            self.quarantine_dir = Path.home() / ".mangodefend" / "quarantine"
+            self.quarantine_dir = Path.home() / ".Mangodefend" / "Karintina"
 
         # Components
         self.scanner = MalwareScanner()
@@ -612,16 +612,27 @@ class RealtimeProtection:
             quarantine_name = f"{timestamp}_{src.name}.quarantined"
             dest = self.quarantine_dir / quarantine_name
 
-            shutil.move(str(src), str(dest))
-            self.stats["files_quarantined"] += 1
-            logger.info(f"🗑️ Quarantined: {src.name} → {dest}")
+            # Retry loop: on Windows, file lock from killed process may linger briefly
+            last_err = None
+            for attempt in range(6):
+                try:
+                    shutil.move(str(src), str(dest))
+                    self.stats["files_quarantined"] += 1
+                    logger.info(f"Quarantined: {src.name} → {dest}")
+                    return
+                except PermissionError as e:
+                    last_err = e
+                    logger.debug(f"Quarantine attempt {attempt+1} blocked, retrying... ({e})")
+                    time.sleep(0.5)
+
+            raise last_err  # All retries exhausted
 
         except Exception as e:
             logger.error(f"Failed to quarantine {file_path}: {e}")
             # Try to delete instead
             try:
                 os.remove(file_path)
-                logger.info(f"🗑️ Deleted malware: {file_path}")
+                logger.info(f"Deleted malware: {file_path}")
             except Exception:
                 logger.error(f"Could not delete malware file: {file_path}")
 
@@ -696,7 +707,7 @@ class RealtimeProtection:
             )
             t.start()
             self._scan_threads.append(t)
-            logger.info("🔍 Process monitor started (scan-on-execute)")
+            logger.info("Process monitor started (scan-on-execute)")
 
         except ImportError:
             logger.warning("psutil not installed, scan-on-execute disabled. Run: pip install psutil")
@@ -737,7 +748,7 @@ class RealtimeProtection:
                                 proc.suspend()
                                 pre_suspended = True
                                 self.stats["processes_suspended"] += 1
-                                logger.debug(f"⏸️ Pre-suspended: {proc.name()} (PID={pid})")
+                                logger.debug(f"Pre-suspended: {proc.name()} (PID={pid})")
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
                         # ─────────────────────────────────────────────────────
@@ -768,7 +779,7 @@ class RealtimeProtection:
                                         if os.path.isfile(clean_arg) and clean_arg not in self.scan_cache:
                                             arg_ext = Path(clean_arg).suffix.lower()
                                             if arg_ext in DANGEROUS_EXTENSIONS:
-                                                logger.info(f"📂 Dangerous file opened: {os.path.basename(clean_arg)} by {proc.name()}")
+                                                logger.info(f"Dangerous file opened: {os.path.basename(clean_arg)} by {proc.name()}")
                                                 # Pass pre_suspended so _scan_opened_file
                                                 # knows the process is already frozen.
                                                 self._scan_opened_file(
@@ -802,7 +813,7 @@ class RealtimeProtection:
                         # ── LAYER B: Scan files being OPENED by this process ──
                         try:
                             cmdline = proc.cmdline()
-                            logger.info(f"🔎 New process: {proc.name()} PID={pid} args={len(cmdline)-1}")
+                            logger.info(f" New process: {proc.name()} PID={pid} args={len(cmdline)-1}")
                             handled = False
 
                             if len(cmdline) > 1:
@@ -869,6 +880,10 @@ class RealtimeProtection:
                 if action == 1:  # ACTION_KILL
                     logger.warning(f"🚨 KILLED malware process: {proc.name()} (PID={pid})")
                     proc.kill()
+                    try:
+                        proc.wait(timeout=3)
+                    except Exception:
+                        pass
                     self.stats["malware_detected"] += 1
                     self.stats["processes_killed"] += 1
                     self._quarantine_file(exe_path)
@@ -927,6 +942,10 @@ class RealtimeProtection:
                     logger.warning(f"🚨 KILLING process: {proc.name()} (PID={pid})")
                     try:
                         proc.kill()
+                        try:
+                            proc.wait(timeout=3)
+                        except Exception:
+                            pass
                         suspended = False  # Killed, no need to resume
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
