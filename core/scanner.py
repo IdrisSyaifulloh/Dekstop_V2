@@ -92,13 +92,6 @@ class MalwareScanner:
     def scan_file(self, file_path: str, is_full_scan: bool = False) -> dict:
         self.load_model(aggressive=is_full_scan)
 
-        file_ext = Path(file_path).suffix.lower()
-        if is_full_scan and file_ext not in _DANGEROUS_EXTENSIONS:
-            return None
-
-        if is_full_scan and os.path.getsize(file_path) > _MAX_FILE_SIZE:
-            return None
-
         file_path_obj = Path(file_path)
         is_image = file_path_obj.suffix.lower() in [".png", ".jpg", ".jpeg"]
 
@@ -129,6 +122,7 @@ class MalwareScanner:
             },
             "file": {
                 "file_name": file_path_obj.name,
+                "file_path": str(file_path),
                 "file_size": os.path.getsize(file_path),
                 "file_hash": self._hash_file(file_path),
             },
