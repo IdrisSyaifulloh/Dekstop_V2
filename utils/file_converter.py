@@ -86,6 +86,10 @@ class FileConverter:
         with open(file_path, "rb") as f:
             binary_data = f.read()
 
+        # Empty file – represent as a blank 32×32 image (no executable content)
+        if len(binary_data) == 0:
+            binary_data = bytes(32 * 32)
+
         # Calculate file size
         file_size_kb = len(binary_data) / 1024
 
