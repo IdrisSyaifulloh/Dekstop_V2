@@ -212,10 +212,12 @@ class ModernWindow(QMainWindow):
             self.dashboard_view.update_threats_count(self.threats_detected)
         
         # Add to scan history
-        file_name = result.get('file', {}).get('file_name', 'Unknown')
+        file_info = result.get('file', {})
+        file_name = file_info.get('file_name', 'Unknown')
+        file_path = file_info.get('file_path', '')
         scan_result = result.get('result', 'Unknown')
         timestamp = datetime.now().strftime("%H:%M")
-        self.scan_view.add_to_history(file_name, scan_result, timestamp)
+        self.scan_view.add_to_history(file_name, scan_result, timestamp, file_path)
         
         # Show result dialog
         self.result_dialog = ResultDialog(result, self)
@@ -289,17 +291,46 @@ class ModernWindow(QMainWindow):
             full_device=full_device
         )
         self.batch_worker.progress.connect(self._on_scan_progress)
+        self.batch_worker.limit_reached.connect(self._on_batch_limit_reached)
         self.batch_worker.file_scanned.connect(self._on_batch_file_scanned)
         self.batch_worker.batch_finished.connect(self._on_batch_finished)
         self.batch_worker.error.connect(self._on_scan_error)
         self.batch_worker.start()
+
+    def _on_batch_limit_reached(self, info: dict):
+        """Ask user whether device scan should continue beyond the default file limit."""
+        if not hasattr(self, 'batch_worker') or not self.batch_worker:
+            return
+
+        from PySide6.QtWidgets import QMessageBox
+
+        limit = info.get('limit', 2000)
+        file_count = info.get('file_count', limit)
+
+        reply = QMessageBox.question(
+            self,
+            "Lanjutkan Scan Semua File?",
+            "Batas aman scan perangkat telah tercapai.\n\n"
+            f"File yang sudah terkumpul: {file_count}\n"
+            f"Batas default: {limit} file\n\n"
+            "Pilih 'Yes' untuk lanjut scan semua file yang ditemukan.\n"
+            "Pilih 'No' untuk berhenti di batas default agar proses tetap lebih cepat.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        self.batch_worker.set_limit_decision(
+            reply == QMessageBox.StandardButton.Yes
+        )
     
     def _on_batch_file_scanned(self, result: dict):
         """Handle individual malware detection during batch scan."""
-        file_name = result.get('file', {}).get('file_name', 'Unknown')
+        file_info = result.get('file', {})
+        file_name = file_info.get('file_name', 'Unknown')
+        file_path = file_info.get('file_path', '')
         scan_result = result.get('result', 'Unknown')
         timestamp = datetime.now().strftime('%H:%M')
-        self.scan_view.add_to_history(file_name, scan_result, timestamp)
+        self.scan_view.add_to_history(file_name, scan_result, timestamp, file_path)
         
         if scan_result == 'Malware':
             self.threats_detected += 1
@@ -329,17 +360,60 @@ class ModernWindow(QMainWindow):
             f" Aman: {clean}\n"
             f" Malware: {malware}\n"
         )
+        if summary.get('continued_beyond_limit'):
+            body += " Mode: lanjut scan semua file setelah melewati batas default\n"
         if errors:
             body += f"Gagal discan: {errors} file\n"
         msg.setText(body)
         if malware > 0:
-            msg.setInformativeText("File malware telah dicatat di riwayat pemindaian.")
+            msg.setInformativeText(
+                f"{malware} file malware ditemukan.\n"
+                "Apakah ingin mengkarantina semua file malware?"
+            )
+            msg.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+            msg.button(QMessageBox.StandardButton.Yes).setText("Karantina Semua")
+            msg.button(QMessageBox.StandardButton.No).setText("Abaikan")
         msg.exec()
-    
+
+        if malware > 0 and msg.result() == QMessageBox.StandardButton.Yes:
+            self._quarantine_batch_results(summary.get('results', []))
+
+    def _quarantine_batch_results(self, malware_results: list):
+        """Move all detected malware files to quarantine folder."""
+        import shutil
+        import time
+        from pathlib import Path as _Path
+
+        quarantine_dir = _Path.home() / ".Mangodefend" / "Karintina"
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+
+        success, failed = 0, 0
+        for result in malware_results:
+            file_path = result.get("file", {}).get("file_path", "")
+            if not file_path or not _Path(file_path).exists():
+                failed += 1
+                continue
+            try:
+                src = _Path(file_path)
+                dest = quarantine_dir / f"{int(time.time())}_{src.name}.quarantined"
+                shutil.move(str(src), str(dest))
+                success += 1
+            except Exception:
+                failed += 1
+
+        from PySide6.QtWidgets import QMessageBox
+        info = f"Karantina selesai!\n\n Berhasil: {success} file"
+        if failed:
+            info += f"\n Gagal: {failed} file"
+        QMessageBox.information(self, "Karantina Selesai", info)
+
     # =================================================================
     # REALTIME PROTECTION
     # =================================================================
-    
+
     def _toggle_realtime_protection(self, enabled: bool):
         """Toggle real-time protection on/off"""
         if self.realtime_protection:
@@ -373,6 +447,10 @@ class ModernWindow(QMainWindow):
         scan_result = alert_data.get("scan_result", {})
         response_event = alert_data.get("response_event")  # threading.Event
         response_holder = alert_data.get("response_holder")  # list to store action
+
+        file_name = os.path.basename(file_path) if file_path and file_path != "Unknown" else "Unknown"
+        timestamp = datetime.now().strftime('%H:%M')
+        self.scan_view.add_to_history(file_name, "Malware (Realtime)", timestamp, file_path)
 
         dialog = MalwareAlertDialog(file_path, scan_result, self)
         dialog.exec()
