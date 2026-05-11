@@ -22,7 +22,7 @@ def _asset(relative: str) -> str:
     if getattr(sys, 'frozen', False):
         base = sys._MEIPASS
     else:
-        # dashboard_view.py lives in ui/components/ — go up 2 levels to app root
+        # dashboard_view.py lives i n ui/components/ — go up 2 levels to app root
         base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     return os.path.join(base, relative)
 

@@ -13,7 +13,7 @@ from datetime import datetime
 # Import new components
 from ui.components import (
     Sidebar, DashboardView, ScanView,
-    ProtectionView, UpdateView
+    ProtectionView, UpdateView, QuarantineView
 )
 
 # Import existing dialogs (preserved from old window)
@@ -92,13 +92,15 @@ class ModernWindow(QMainWindow):
         self.dashboard_view = DashboardView()
         self.scan_view = ScanView()
         self.protection_view = ProtectionView()
+        self.quarantine_view = QuarantineView()
         self.update_view = UpdateView()
         
         # Add views to stack
         self.content_stack.addWidget(self.dashboard_view)  # index 0
         self.content_stack.addWidget(self.scan_view)       # index 1
         self.content_stack.addWidget(self.protection_view) # index 2
-        self.content_stack.addWidget(self.update_view)     # index 3
+        self.content_stack.addWidget(self.quarantine_view) # index 3
+        self.content_stack.addWidget(self.update_view)     # index 4
         
         # Connect view signals
         self._connect_view_signals()
@@ -131,11 +133,14 @@ class ModernWindow(QMainWindow):
             "dashboard": 0,
             "scan": 1,
             "protection": 2,
-            "update": 3
+            "quarantine": 3,
+            "update": 4
         }
         
         if tab_id in tab_map:
             self.content_stack.setCurrentIndex(tab_map[tab_id])
+            if tab_id == "quarantine":
+                self.quarantine_view.load_quarantine_items()
     
     def _on_theme_toggled(self, is_dark: bool):
         """Handle theme toggle"""
@@ -151,6 +156,7 @@ class ModernWindow(QMainWindow):
         self.dashboard_view.set_theme(self.is_dark_mode)
         self.scan_view.set_theme(self.is_dark_mode)
         self.protection_view.set_theme(self.is_dark_mode)
+        self.quarantine_view.set_theme(self.is_dark_mode)
         self.update_view.set_theme(self.is_dark_mode)
         
         # Update dialogs if they exist

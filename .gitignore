@@ -35,3 +35,4 @@ temp/
 # models/*.onnx
 backend/
 *.exe
+mangodefend-server/

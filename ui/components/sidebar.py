@@ -188,6 +188,7 @@ class Sidebar(QWidget):
             ("dashboard", "Dashboard"),
             ("scan", "Scan"),
             ("protection", "Protection"),
+            ("quarantine", "Quarantine"),
             ("update", "Update")
         ]
         

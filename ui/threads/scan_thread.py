@@ -3,6 +3,7 @@ Scan Thread
 Background worker thread for malware scanning (single file and batch)
 """
 import os
+import threading
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from core.scanner import MalwareScanner
@@ -55,6 +56,7 @@ class BatchScanThread(QThread):
     batch_finished = Signal(dict)  # summary
     error = Signal(str)
     progress = Signal(int, str)   # percentage, message
+    limit_reached = Signal(dict)
 
     # Extensions to scan in batch mode (dangerous types)
     SCAN_EXTENSIONS = frozenset({
@@ -73,6 +75,10 @@ class BatchScanThread(QThread):
         self.full_device = full_device
         self.scanner = MalwareScanner()
         self.is_canceled = False
+        self._enforce_device_limit = True
+        self._limit_decision_event = threading.Event()
+        self._limit_continue_all = False
+        self._limit_prompt_sent = False
 
     def run(self):
         try:
@@ -141,6 +147,8 @@ class BatchScanThread(QThread):
                 "clean": clean_count,
                 "errors": error_count,
                 "results": results,
+                "scan_limit": self._DEVICE_SCAN_FILE_LIMIT,
+                "continued_beyond_limit": not self._enforce_device_limit,
             }
             self.batch_finished.emit(summary)
 
@@ -176,6 +184,7 @@ class BatchScanThread(QThread):
             scan_dirs = [Path(self.folder_path)] if self.folder_path else []
 
         seen: set[str] = set()
+        visited_dirs: set[str] = set()
 
         for scan_dir in scan_dirs:
             if self.is_canceled:
@@ -183,25 +192,24 @@ class BatchScanThread(QThread):
             if not scan_dir.exists():
                 continue
             try:
-                for root, dirs, filenames in os.walk(scan_dir):
+                # followlinks=True agar folder hidden via symlink/junction ikut di-scan
+                for root, dirs, filenames in os.walk(scan_dir, followlinks=True):
                     if self.is_canceled:
                         break
 
-                    # Cap total files for device scan
-                    if self.full_device and len(files) >= self._DEVICE_SCAN_FILE_LIMIT:
-                        return files
+                    # Cycle detection – cegah infinite loop dari circular junction/symlink
+                    try:
+                        real_root = os.path.realpath(root)
+                    except (OSError, PermissionError):
+                        real_root = root
+                    if real_root in visited_dirs:
+                        dirs.clear()
+                        continue
+                    visited_dirs.add(real_root)
 
-                    # Skip system / hidden / irrelevant directories
-                    dirs[:] = [
-                        d for d in dirs
-                        if not d.startswith(".")
-                        and d not in (
-                            "$Recycle.Bin", "System Volume Information",
-                            "Windows", "node_modules", ".git",
-                            "__pycache__", "venv", ".venv",
-                            "WinSxS", "assembly",
-                        )
-                    ]
+                    # Cap total files for device scan
+                    if self.full_device and self._should_stop_at_limit(len(files)):
+                        return files
 
                     for fname in filenames:
                         if self.is_canceled:
@@ -213,21 +221,14 @@ class BatchScanThread(QThread):
                             continue
                         seen.add(fpath)
 
-                        ext = Path(fname).suffix.lower()
-
-                        # For device scan: filter to dangerous extensions only
-                        if self.full_device and ext not in self.SCAN_EXTENSIONS:
-                            continue
-
                         try:
-                            size = os.path.getsize(fpath)
-                            if 0 < size <= 10 * 1024 * 1024:  # 1 byte – 10 MB
+                            if os.path.isfile(fpath):
                                 files.append(fpath)
                         except (OSError, PermissionError):
                             pass
 
                         # Cap inside inner loop too
-                        if self.full_device and len(files) >= self._DEVICE_SCAN_FILE_LIMIT:
+                        if self.full_device and self._should_stop_at_limit(len(files)):
                             return files
 
             except (OSError, PermissionError):
@@ -235,5 +236,33 @@ class BatchScanThread(QThread):
 
         return files
 
+    def _should_stop_at_limit(self, file_count: int) -> bool:
+        """Ask UI whether device scan should continue once safety limit is reached."""
+        if not self._enforce_device_limit or file_count < self._DEVICE_SCAN_FILE_LIMIT:
+            return False
+
+        if not self._limit_prompt_sent:
+            self._limit_prompt_sent = True
+            self.limit_reached.emit({
+                "limit": self._DEVICE_SCAN_FILE_LIMIT,
+                "file_count": file_count,
+            })
+
+        while not self._limit_decision_event.wait(timeout=0.2):
+            if self.is_canceled:
+                return True
+
+        if self._limit_continue_all:
+            self._enforce_device_limit = False
+            return False
+
+        return True
+
+    def set_limit_decision(self, continue_all: bool):
+        """Receive UI decision after the device scan limit prompt."""
+        self._limit_continue_all = continue_all
+        self._limit_decision_event.set()
+
     def cancel(self):
         self.is_canceled = True
+        self._limit_decision_event.set()

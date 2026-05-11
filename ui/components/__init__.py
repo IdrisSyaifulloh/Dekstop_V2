@@ -7,3 +7,4 @@ from .dashboard_view import DashboardView
 from .scan_view import ScanView
 from .protection_view import ProtectionView
 from .update_view import UpdateView
+from .quarantine_view import QuarantineView

@@ -377,7 +377,7 @@ class ScanView(QWidget):
     
     # ── History ──
     
-    def add_to_history(self, filename: str, result: str, timestamp: str):
+    def add_to_history(self, filename: str, result: str, timestamp: str, file_path: str = ""):
         """Add scan result to history"""
         if self.history_list.count() == 1:
             first = self.history_list.item(0)
@@ -385,8 +385,11 @@ class ScanView(QWidget):
                 self.history_list.clear()
         
         icon = "" if result == "Benign" else ""
-        item_text = f"{icon} {filename}\n{result} • {timestamp}"
+        path_line = f"\nPath: {file_path}" if file_path else ""
+        item_text = f"{icon} {filename}\n{result} • {timestamp}{path_line}"
         item = QListWidgetItem(item_text)
+        if file_path:
+            item.setToolTip(file_path)
         self.history_list.insertItem(0, item)
         
         while self.history_list.count() > 20:

@@ -37,12 +37,12 @@ Output: Normalized list format
 ## File Changes
 
 ### Files Modified:
-1. **`desktop_app/core/scanner.py`** - Core scanner logic
-2. **`desktop_app/ui/modern_window.py`** - UI result display
+1. **`core/scanner.py`** - Core scanner logic
+2. **`ui/modern_window.py`** - UI result display
 
 ### Files Added:
-3. **`desktop_app/test_onnx_scanner.py`** - ONNX testing script
-4. **`desktop_app/README_ONNX.md`** - ONNX documentation
+3. **`test_onnx_scanner.py`** - ONNX testing script
+4. **`README_ONNX.md`** - ONNX documentation
 
 ---
 
