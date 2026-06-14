@@ -40,3 +40,21 @@ SYSTEM REQUIREMENTS:
 
 VERSION: 1.0.2
 BUILD DATE: 2025-12-23
+
+BUILD DARI SOURCE:
+
+1. Install Python 3.11 dan Inno Setup 6.
+2. Buat virtualenv lalu install dependency:
+   python -m venv .venv
+   .venv\Scripts\activate
+   pip install -r requirements.txt
+3. Pastikan model ada di folder models/.
+4. Untuk membuat installer Windows, jalankan:
+   build_installer.bat
+
+Catatan:
+- Folder build/, dist/, installer/MangoDefend/, dataset/, dan file .exe adalah hasil build/data besar,
+  jadi tidak dicommit ke Git.
+- File resep build yang perlu dicommit adalah MangoDefend.spec dan installer/MangoDefend_Setup.iss.
+- Jika installer\vc_redist.x64.exe belum ada, download Microsoft Visual C++ Redistributable x64
+  lalu taruh di folder installer/.

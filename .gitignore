@@ -39,7 +39,10 @@ models/*.onnx.data
 backend/
 *.exe
 mangodefend-server/
-installer/
+installer/*
+!installer/
+!installer/*.iss
+!installer/*.py
 node_modules/
 dist/
 build/

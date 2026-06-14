@@ -1,19 +1,23 @@
 # -*- mode: utf-8 -*-
 import os
 import glob
+import sys
+
+import PySide6
+import shiboken6
 
 block_cipher = None
 
-pyside6_dir  = r'C:\Users\saefu\AppData\Local\Programs\Python\Python311\Lib\site-packages\PySide6'
-shiboken6_dir= r'C:\Users\saefu\AppData\Local\Programs\Python\Python311\Lib\site-packages\shiboken6'
-python_dir   = r'C:\Users\saefu\AppData\Local\Programs\Python\Python311'
+pyside6_dir = PySide6.__path__[0]
+shiboken6_dir = shiboken6.__path__[0]
+python_dir = os.path.dirname(sys.executable)
 
 # Semua DLL PySide6 dan shiboken6 → langsung ke root _internal (bukan subfolder)
 # agar Windows bisa resolve tanpa perlu PATH trick
-pyside6_dlls   = [(f, '.')  for f in glob.glob(os.path.join(pyside6_dir,  '*.dll'))]
-shiboken6_dlls = [(f, '.')  for f in glob.glob(os.path.join(shiboken6_dir,'*.dll'))]
-python_dlls    = [(f, '.')  for f in glob.glob(os.path.join(python_dir,   'vcruntime*.dll'))]
-ucrt_dll       = [(r'C:\Windows\System32\ucrtbase.dll', '.')]
+pyside6_dlls = [(f, '.') for f in glob.glob(os.path.join(pyside6_dir, '*.dll'))]
+shiboken6_dlls = [(f, '.') for f in glob.glob(os.path.join(shiboken6_dir, '*.dll'))]
+python_dlls = [(f, '.') for f in glob.glob(os.path.join(python_dir, 'vcruntime*.dll'))]
+ucrt_dll = [(r'C:\Windows\System32\ucrtbase.dll', '.')] if os.path.exists(r'C:\Windows\System32\ucrtbase.dll') else []
 
 # opengl32sw wajib untuk VM tanpa GPU
 opengl_dll = [(os.path.join(pyside6_dir, 'opengl32sw.dll'), '.')]
