@@ -30,9 +30,24 @@ local_queue.db
 temp/
 .claude/
 
-# Models (optional - uncomment if models are large)
-# models/*.pth
-# models/*.onnx
+# Large generated/data artifacts
+dataset/
+models/*.pth
+models/*.onnx
+models/*.onnx.data
 backend/
 *.exe
 mangodefend-server/
+installer/
+node_modules/
+dist/
+build/
+.vite/
+.env
+*.log
+*.zip
+*.rar
+*.exe
+*.iso
+*.vdi
+*.db

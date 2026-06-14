@@ -6,8 +6,8 @@ Flow:
   1. Watchdog detects new file (e.g., .exe downloaded)
   2. IMMEDIATELY acquire exclusive lock on file (blocks all access)
   3. Scan file with AI model (ONNX)
-  4. If clean → release lock (file can be opened normally)
-  5. If malware → quarantine/delete, then release lock
+  4. If clean â†’ release lock (file can be opened normally)
+  5. If malware â†’ quarantine/delete, then release lock
 
 This provides near-kernel-level protection without requiring a signed
 kernel driver, making the app fully standalone.
@@ -55,6 +55,7 @@ class FileLock:
     """
 
     def __init__(self, file_path: str):
+        """Simpan path file dan status handle lock Windows."""
         self.file_path = file_path
         self._handle = None
         self._locked = False
@@ -111,13 +112,16 @@ class FileLock:
 
     @property
     def is_locked(self) -> bool:
+        """Kembalikan True jika file masih sedang dikunci oleh aplikasi."""
         return self._locked
 
     def __enter__(self):
+        """Dukung penggunaan `with FileLock(...)` agar lock otomatis diambil."""
         self.acquire()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Lepaskan lock otomatis saat keluar dari blok `with`."""
         self.release()
         return False
 
@@ -145,7 +149,7 @@ SKIP_EXTENSIONS = {
     '.tmp', '.temp', '.lock', '.gitignore', '.gitattributes',
 }
 
-# Executable/dangerous extensions — also includes all file types the ML model can scan.
+# Executable/dangerous extensions â€” also includes all file types the ML model can scan.
 # These are locked by the prescan on startup so they can't be opened before scanning.
 DANGEROUS_EXTENSIONS = {
     # Executables & scripts
@@ -165,6 +169,26 @@ DANGEROUS_EXTENSIONS = {
 _IMAGE_EXTS   = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'}
 _MAX_SIZE_IMG = 50 * 1024 * 1024   # 50 MB
 _MAX_SIZE_EXE = 10 * 1024 * 1024   # 10 MB
+
+# Folder ini sangat sering berubah, terkunci Windows, atau berisi file internal
+# aplikasi. Tetap dilewati walaupun mode monitor memakai seluruh drive.
+EXCLUDED_DIR_NAMES = {
+    '$recycle.bin',
+    '$windows.~bt',
+    '$windows.~ws',
+    'system volume information',
+    'windows',
+    'program files',
+    'program files (x86)',
+    'programdata',
+    'recovery',
+    'appdata',
+    '__pycache__',
+    'venv',
+    '.venv',
+    '.git',
+    'node_modules',
+}
 
 
 class RealtimeProtection:
@@ -231,7 +255,7 @@ class RealtimeProtection:
             "mode": "none"
         }
 
-        # Shutdown event — set when stop() is called to unblock waiting threads
+        # Shutdown event â€” set when stop() is called to unblock waiting threads
         self._shutdown_event = threading.Event()
 
         # Scan cache (avoid re-scanning known clean files)
@@ -328,14 +352,20 @@ class RealtimeProtection:
             """Intercept ALL new files and scan them."""
 
             def on_created(self, event):
+                """Dipanggil watchdog ketika ada file baru dibuat/disalin ke folder monitor."""
                 if event.is_directory:
+                    return
+                if protection._should_ignore_path(event.src_path):
                     return
                 protection._on_new_file(event.src_path)
 
             def on_modified(self, event):
+                """Dipanggil watchdog ketika file berubah; dipakai untuk menangkap file yang selesai ditulis."""
                 if event.is_directory:
                     return
                 file_path = event.src_path
+                if protection._should_ignore_path(file_path):
+                    return
 
                 # Only scan modified files if not already being handled
                 if file_path not in protection.scan_cache:
@@ -351,13 +381,13 @@ class RealtimeProtection:
             try:
                 if os.path.exists(path):
                     self._observer.schedule(handler, path, recursive=True)
-                    logger.info(f"📂 Monitoring: {path}")
+                    logger.info(f"ðŸ“‚ Monitoring: {path}")
             except Exception as e:
                 logger.error(f"Failed to monitor {path}: {e}")
 
         self._observer.start()
 
-        # Start scan workers (4 threads — more parallelism needed because
+        # Start scan workers (4 threads â€” more parallelism needed because
         # prescan now locks images too, so more files need rapid scan+release)
         for i in range(4):
             t = threading.Thread(
@@ -389,7 +419,7 @@ class RealtimeProtection:
 
         self.mode = "pseudo-blocking"
         self.stats["mode"] = "pseudo-blocking"
-        logger.info("✅ Real-time protection started (PSEUDO-BLOCKING MODE)")
+        logger.info("âœ… Real-time protection started (PSEUDO-BLOCKING MODE)")
 
     def _prescan_existing_files(self):
         """
@@ -401,7 +431,7 @@ class RealtimeProtection:
         if not self.monitored_paths:
             return
 
-        logger.info("🔍 Pre-scanning existing files in monitored paths...")
+        logger.info("ðŸ” Pre-scanning existing files in monitored paths...")
         count = 0
 
         for base_path in self.monitored_paths:
@@ -411,13 +441,17 @@ class RealtimeProtection:
                 for root, dirs, filenames in os.walk(base_path):
                     if not self.running:
                         break
-                    # Skip hidden / system folders
-                    dirs[:] = [d for d in dirs if not d.startswith('.')
-                               and d not in ('$Recycle.Bin', 'System Volume Information',
-                                             'Windows', '__pycache__', 'venv', '.venv')]
+                    # Potong folder yang terlalu berisik/terkunci agar prescan
+                    # seluruh drive tetap bisa berjalan tanpa membebani aplikasi.
+                    dirs[:] = [
+                        d for d in dirs
+                        if not self._should_ignore_path(os.path.join(root, d))
+                    ]
                     for fname in filenames:
                         if not self.running:
                             break
+                        if self._should_ignore_path(os.path.join(root, fname)):
+                            continue
                         ext = Path(fname).suffix.lower()
                         if ext not in DANGEROUS_EXTENSIONS:
                             continue
@@ -439,13 +473,13 @@ class RealtimeProtection:
             except (OSError, PermissionError):
                 pass
 
-        logger.info(f"✅ Pre-scan queued {count} existing dangerous files")
+        logger.info(f"âœ… Pre-scan queued {count} existing dangerous files")
 
     def _on_new_file(self, file_path: str):
         """
         Handle a newly detected file:
         1. Try to acquire exclusive lock immediately (blocks access)
-        2. Queue for scanning regardless — scan worker will retry lock
+        2. Queue for scanning regardless â€” scan worker will retry lock
         """
         if file_path in self.scan_cache:
             return
@@ -458,9 +492,9 @@ class RealtimeProtection:
             with self._lock_mutex:
                 self._active_locks[file_path] = lock
             self.stats["files_blocked"] += 1
-            logger.info(f"🔒 LOCKED: {file_path}")
+            logger.info(f"ðŸ”’ LOCKED: {file_path}")
         else:
-            # File in use (e.g., still downloading) — queue anyway.
+            # File in use (e.g., still downloading) â€” queue anyway.
             # Scan worker will wait for file to stabilise and re-lock.
             logger.debug(f"Could not lock immediately, will retry in worker: {file_path}")
 
@@ -514,7 +548,7 @@ class RealtimeProtection:
             if file_path in self._active_locks:
                 return True  # already locked
 
-        # File not locked yet — wait for it to stabilise, then lock
+        # File not locked yet â€” wait for it to stabilise, then lock
         if not self._wait_for_stable_file(file_path):
             return False
 
@@ -523,7 +557,7 @@ class RealtimeProtection:
             with self._lock_mutex:
                 self._active_locks[file_path] = lock
             self.stats["files_blocked"] += 1
-            logger.info(f"🔒 LOCKED (after stabilise): {file_path}")
+            logger.info(f"ðŸ”’ LOCKED (after stabilise): {file_path}")
             return True
 
         logger.warning(f"Could not acquire lock even after stabilise: {file_path}")
@@ -544,12 +578,12 @@ class RealtimeProtection:
                     self._release_lock(file_path)
                     continue
 
-                # ── CRITICAL: ensure file is locked BEFORE scanning ──
+                # â”€â”€ CRITICAL: ensure file is locked BEFORE scanning â”€â”€
                 # If lock was acquired in _on_new_file, this is instant.
                 # If not (browser was writing), this waits for stability then locks.
                 locked = self._ensure_locked(file_path)
                 if not locked:
-                    # Could not lock — skip to avoid false positives but warn
+                    # Could not lock â€” skip to avoid false positives but warn
                     logger.warning(f"Scanning without lock (access not blocked): {file_path}")
 
                 # Scan the file (lock is held, so user CANNOT open/execute it)
@@ -570,21 +604,22 @@ class RealtimeProtection:
                     continue
 
                 if is_malware:
-                    logger.warning(f"🚨 MALWARE BLOCKED: {file_path}")
-                    # Lock is still held — ask user (file remains unexecutable)
+                    logger.warning(f"ðŸš¨ MALWARE BLOCKED: {file_path}")
+                    # Lock is still held â€” ask user (file remains unexecutable)
                     action = self._ask_user_decision(file_path, scan_result)
                     # Release lock BEFORE quarantine (need to move file)
                     self._release_lock(file_path)
                     if action == 1:  # quarantine
                         self._quarantine_file(file_path)
                     else:
-                        logger.info(f"▶️ User allowed: {os.path.basename(file_path)}")
+                        logger.info(f"â–¶ï¸ User allowed: {os.path.basename(file_path)}")
                         self.scan_cache.add(file_path)
+                        self.scan_cache.discard(file_path)
                 else:
-                    # Clean — release lock, add to whitelist cache
+                    # Clean â€” release lock, add to whitelist cache
                     self._release_lock(file_path)
                     self.scan_cache.add(file_path)
-                    logger.info(f"✅ Clean: {os.path.basename(file_path)}")
+                    logger.info(f"âœ… Clean: {os.path.basename(file_path)}")
 
             except Exception as e:
                 logger.error(f"Scan worker error: {e}")
@@ -598,7 +633,7 @@ class RealtimeProtection:
             lock = self._active_locks.pop(file_path, None)
             if lock:
                 lock.release()
-                logger.debug(f"🔓 Unlocked: {file_path}")
+                logger.debug(f"ðŸ”“ Unlocked: {file_path}")
 
     def _quarantine_file(self, file_path: str):
         """Move malware file to quarantine directory."""
@@ -618,7 +653,7 @@ class RealtimeProtection:
                 try:
                     shutil.move(str(src), str(dest))
                     self.stats["files_quarantined"] += 1
-                    logger.info(f"Quarantined: {src.name} → {dest}")
+                    logger.info(f"Quarantined: {src.name} â†’ {dest}")
                     return
                 except PermissionError as e:
                     last_err = e
@@ -649,20 +684,41 @@ class RealtimeProtection:
     # ================================================================
 
     def _get_default_paths(self) -> List[str]:
-        """Get default paths to monitor (user-focused, not all drives)."""
-        home = Path.home()
-        paths = [
-            str(home / "Downloads"),
-            str(home / "Desktop"),
-            str(home / "Documents"),
-        ]
+        """Ambil semua root drive lokal yang bisa dipantau realtime protection."""
+        if sys.platform == "win32":
+            drives = []
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+            for index in range(26):
+                if bitmask & (1 << index):
+                    drive = f"{chr(65 + index)}:\\"
+                    drive_type = ctypes.windll.kernel32.GetDriveTypeW(drive)
+                    # 3 = DRIVE_FIXED, 2 = removable flashdisk/external drive.
+                    if drive_type in (2, 3) and os.path.exists(drive):
+                        drives.append(drive)
+            return drives
 
-        # Add common temp/download locations
-        temp = os.environ.get("TEMP", "")
-        if temp and os.path.exists(temp):
-            paths.append(temp)
+        return ["/"]
 
-        return [p for p in paths if os.path.exists(p)]
+    def _should_ignore_path(self, file_path: str) -> bool:
+        """Cek apakah path perlu dilewati agar monitor semua drive tetap stabil."""
+        try:
+            path = Path(file_path)
+            lower_parts = {part.lower() for part in path.parts}
+            if lower_parts & EXCLUDED_DIR_NAMES:
+                return True
+
+            ext = path.suffix.lower()
+            if ext in self.whitelist_extensions or ext in SKIP_EXTENSIONS:
+                return True
+
+            quarantine = str(self.quarantine_dir.resolve()).lower()
+            current = str(path.resolve()).lower()
+            if current.startswith(quarantine):
+                return True
+        except Exception:
+            return True
+
+        return False
 
     def is_running(self) -> bool:
         """Check if protection is running."""
@@ -693,7 +749,7 @@ class RealtimeProtection:
     def _start_process_monitor(self):
         """
         Start monitoring new process creation.
-        When a new .exe runs, suspend it → scan → resume or kill.
+        When a new .exe runs, suspend it â†’ scan â†’ resume or kill.
         """
         try:
             import psutil
@@ -737,7 +793,7 @@ class RealtimeProtection:
                     try:
                         proc = psutil.Process(pid)
 
-                        # ── SUSPEND IMMEDIATELY ──────────────────────────────
+                        # â”€â”€ SUSPEND IMMEDIATELY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                         # Freeze the process BEFORE reading exe/cmdline so it
                         # cannot render or execute anything while we decide.
                         # We resume it if it turns out to be clean/safe.
@@ -751,7 +807,7 @@ class RealtimeProtection:
                                 logger.debug(f"Pre-suspended: {proc.name()} (PID={pid})")
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
-                        # ─────────────────────────────────────────────────────
+                        # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
                         exe_path = proc.exe() if not exe_path else exe_path
 
@@ -800,9 +856,9 @@ class RealtimeProtection:
 
                         is_system = self._is_system_process(exe_path)
 
-                        # ── LAYER A: Scan the executable itself ──
+                        # â”€â”€ LAYER A: Scan the executable itself â”€â”€
                         if not is_system and exe_path not in self.scan_cache:
-                            # Process already pre-suspended — pass that context
+                            # Process already pre-suspended â€” pass that context
                             self._scan_and_handle_process(
                                 proc, pid, exe_path,
                                 already_suspended=pre_suspended
@@ -810,7 +866,7 @@ class RealtimeProtection:
                             pre_suspended = False
                             continue
 
-                        # ── LAYER B: Scan files being OPENED by this process ──
+                        # â”€â”€ LAYER B: Scan files being OPENED by this process â”€â”€
                         try:
                             cmdline = proc.cmdline()
                             logger.info(f" New process: {proc.name()} PID={pid} args={len(cmdline)-1}")
@@ -828,7 +884,7 @@ class RealtimeProtection:
                                     if os.path.isfile(clean_arg):
                                         if clean_arg in self.scan_cache:
                                             continue
-                                        logger.info(f"📂 File opened: {os.path.basename(clean_arg)} by {proc.name()}")
+                                        logger.info(f"ðŸ“‚ File opened: {os.path.basename(clean_arg)} by {proc.name()}")
                                         self._scan_opened_file(
                                             proc, pid, clean_arg,
                                             already_suspended=pre_suspended
@@ -849,7 +905,7 @@ class RealtimeProtection:
                     except Exception as e:
                         logger.debug(f"Process monitor error for PID {pid}: {e}")
 
-                # Poll interval: 5ms — tight enough to catch processes before first render
+                # Poll interval: 5ms â€” tight enough to catch processes before first render
                 time.sleep(0.005)
 
             except Exception as e:
@@ -866,9 +922,9 @@ class RealtimeProtection:
             if not already_suspended:
                 proc.suspend()
                 self.stats["processes_suspended"] += 1
-                logger.info(f"⏸️ SUSPENDED process: {proc.name()} (PID={pid})")
+                logger.info(f"â¸ï¸ SUSPENDED process: {proc.name()} (PID={pid})")
             else:
-                logger.info(f"⏸️ Already suspended: {proc.name()} (PID={pid})")
+                logger.info(f"â¸ï¸ Already suspended: {proc.name()} (PID={pid})")
 
             result = self.scanner.scan_file(exe_path)
             self.stats["files_scanned"] += 1
@@ -878,7 +934,7 @@ class RealtimeProtection:
                 action = self._ask_user_decision(exe_path, result)
 
                 if action == 1:  # ACTION_KILL
-                    logger.warning(f"🚨 KILLED malware process: {proc.name()} (PID={pid})")
+                    logger.warning(f"ðŸš¨ KILLED malware process: {proc.name()} (PID={pid})")
                     proc.kill()
                     try:
                         proc.wait(timeout=3)
@@ -889,13 +945,14 @@ class RealtimeProtection:
                     self._quarantine_file(exe_path)
                 else:
                     # User chose to continue
-                    logger.info(f"▶️ User allowed process: {proc.name()} (PID={pid})")
+                    logger.info(f"â–¶ï¸ User allowed process: {proc.name()} (PID={pid})")
                     proc.resume()
                     self.scan_cache.add(exe_path)
+                    self.scan_cache.discard(exe_path)
             else:
                 proc.resume()
                 self.scan_cache.add(exe_path)
-                logger.info(f"▶️ Resumed clean process: {proc.name()} (PID={pid})")
+                logger.info(f"â–¶ï¸ Resumed clean process: {proc.name()} (PID={pid})")
 
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
@@ -916,30 +973,30 @@ class RealtimeProtection:
 
         suspended = already_suspended
         try:
-            logger.info(f"🔍 Scanning opened file: {os.path.basename(file_path)} (opened by {proc.name()}, PID={pid})")
+            logger.info(f"ðŸ” Scanning opened file: {os.path.basename(file_path)} (opened by {proc.name()}, PID={pid})")
 
-            # ── Suspend the opener process RIGHT AWAY (if not already done) ──
+            # â”€â”€ Suspend the opener process RIGHT AWAY (if not already done) â”€â”€
             if not already_suspended:
                 try:
                     proc.suspend()
                     suspended = True
                     self.stats["processes_suspended"] += 1
-                    logger.info(f"⏸️ SUSPENDED opener: {proc.name()} (PID={pid}) while scanning")
+                    logger.info(f"â¸ï¸ SUSPENDED opener: {proc.name()} (PID={pid}) while scanning")
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass  # Process died or no permission — scan anyway
+                    pass  # Process died or no permission â€” scan anyway
             else:
-                logger.info(f"⏸️ Already suspended opener: {proc.name()} (PID={pid}) while scanning")
+                logger.info(f"â¸ï¸ Already suspended opener: {proc.name()} (PID={pid}) while scanning")
 
             result = self.scanner.scan_file(file_path)
             self.stats["files_scanned"] += 1
 
             if result and result.get('result') == 'Malware':
-                # Alert while opener is frozen → user sees the dialog, NOT the file
+                # Alert while opener is frozen â†’ user sees the dialog, NOT the file
                 action = self._ask_user_decision(file_path, result)
 
                 if action == 1:  # Kill & Quarantine
-                    logger.warning(f"🚨 MALWARE found: {file_path}")
-                    logger.warning(f"🚨 KILLING process: {proc.name()} (PID={pid})")
+                    logger.warning(f"ðŸš¨ MALWARE found: {file_path}")
+                    logger.warning(f"ðŸš¨ KILLING process: {proc.name()} (PID={pid})")
                     try:
                         proc.kill()
                         try:
@@ -953,9 +1010,10 @@ class RealtimeProtection:
                     self.stats["processes_killed"] += 1
                     self._quarantine_file(file_path)
                 else:
-                    # User chose to allow — resume the opener
-                    logger.info(f"▶️ User allowed file: {os.path.basename(file_path)}")
+                    # User chose to allow â€” resume the opener
+                    logger.info(f"â–¶ï¸ User allowed file: {os.path.basename(file_path)}")
                     self.scan_cache.add(file_path)
+                    self.scan_cache.discard(file_path)
                     if suspended:
                         try:
                             proc.resume()
@@ -963,9 +1021,9 @@ class RealtimeProtection:
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
             else:
-                # Clean — resume opener normally
+                # Clean â€” resume opener normally
                 self.scan_cache.add(file_path)
-                logger.info(f"✅ Clean file: {os.path.basename(file_path)}")
+                logger.info(f"âœ… Clean file: {os.path.basename(file_path)}")
                 if suspended:
                     try:
                         proc.resume()
@@ -986,7 +1044,7 @@ class RealtimeProtection:
         """
         Ask user via UI what to do with detected malware.
         Returns: 0 = continue/allow, 1 = kill & quarantine
-        Always waits for the user to click a button — never auto-kills.
+        Always waits for the user to click a button â€” never auto-kills.
         """
         if self.malware_bridge:
             import threading as _threading
@@ -1007,15 +1065,15 @@ class RealtimeProtection:
             # Uses chunked waits so threads unblock quickly when stop() is called.
             while not response_event.wait(timeout=0.3):
                 if self._shutdown_event.is_set() or not self.running:
-                    # Protection stopped while dialog was open — allow the file
+                    # Protection stopped while dialog was open â€” allow the file
                     # (the dialog will be cleaned up by the UI on its own)
-                    logger.info("Protection stopped while waiting for user decision — defaulting to allow")
+                    logger.info("Protection stopped while waiting for user decision â€” defaulting to allow")
                     return 0
 
             if response_holder:
                 return response_holder[0]
 
-        # No UI bridge — default to ALLOW (never auto-kill without user consent)
+        # No UI bridge â€” default to ALLOW (never auto-kill without user consent)
         return 0
 
     def _is_system_process(self, exe_path: str) -> bool:
@@ -1052,7 +1110,8 @@ if __name__ == "__main__":
     )
 
     def on_malware(file_path, result):
-        print(f"\n🚨 MALWARE ALERT!")
+        """Callback demo saat file malware ditemukan ketika file ini dijalankan langsung."""
+        print(f"\nðŸš¨ MALWARE ALERT!")
         print(f"File: {file_path}")
         print(f"Result: {result.get('result', 'Unknown')}")
         print(f"Confidence: {result.get('confidence', 0):.1%}")
@@ -1064,7 +1123,7 @@ if __name__ == "__main__":
 
     protection.start()
 
-    print(f"\n🛡️ Real-time protection running (mode: {protection.get_mode()})")
+    print(f"\nðŸ›¡ï¸ Real-time protection running (mode: {protection.get_mode()})")
     print("Press Ctrl+C to stop\n")
 
     try:

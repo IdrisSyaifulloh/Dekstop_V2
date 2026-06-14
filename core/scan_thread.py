@@ -27,11 +27,14 @@ SCAN_EXTENSIONS = frozenset({
 
 
 class ScanThread(QThread):
+    """Thread kecil untuk menjalankan scan tanpa membuat tampilan aplikasi freeze."""
+
     finished = Signal(dict)
     error = Signal(str)
     progress = Signal(int, str)
 
     def __init__(self, file_path: str, is_full_scan: bool = False):
+        """Simpan target scan dan siapkan scanner yang akan dipakai di thread ini."""
         super().__init__()
         self.file_path = file_path
         self.is_full_scan = is_full_scan
@@ -40,10 +43,12 @@ class ScanThread(QThread):
 
     # ====================================================
     def cancel(self):
+        """Tandai proses scan agar berhenti secepat mungkin."""
         self.is_canceled = True
 
     # ====================================================
     def run(self):
+        """Entry point thread: pilih mode scan lalu kirim sinyal hasil/error ke UI."""
         try:
             if self.is_full_scan:
                 self._run_full_scan()
@@ -56,6 +61,7 @@ class ScanThread(QThread):
     # SINGLE FILE SCAN
     # ====================================================
     def _run_single_scan(self):
+        """Scan satu file dan kirim progress bertahap agar UI terasa responsif."""
         stages = [
             (10, "Memulai pemindaian..."),
             (30, "Menganalisis file..."),
@@ -88,6 +94,7 @@ class ScanThread(QThread):
     # FULL SCAN
     # ====================================================
     def _run_full_scan(self):
+        """Scan banyak file dari folder/perangkat lalu rangkum jumlah aman, malware, dan gagal."""
         base_path = Path(self.file_path)
 
         self.progress.emit(5, "Mengumpulkan file untuk dipindai...")

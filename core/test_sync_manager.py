@@ -2,6 +2,7 @@ import requests
 import time
 
 def test_socketio_server():
+    """Test sederhana untuk mengecek koneksi Socket.IO lokal dan mengirim log contoh."""
     import socketio
     sio = socketio.Client()
     try:

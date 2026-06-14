@@ -34,7 +34,10 @@ _DANGEROUS_EXTENSIONS = frozenset({
 
 
 class MalwareScanner:
+    """ONNX-based malware classifier that converts files to images before inference."""
+
     def __init__(self, model_path: str | None = None):
+        """Initialize the scanner with an optional custom model path."""
         if model_path is None:
             base_dir = Path(__file__).resolve().parent.parent
             model_path = base_dir / DEFAULT_MODEL_PATH
@@ -48,7 +51,9 @@ class MalwareScanner:
     # ====================================================
     # LOAD MODEL
     # ====================================================
+
     def load_model(self, aggressive: bool = False):
+        """Load (or reload) the ONNX inference session, selecting thread settings by scan mode."""
         # Reload session if mode changes
         if self.session is not None and aggressive == self._aggressive:
             return
@@ -89,7 +94,9 @@ class MalwareScanner:
     # ====================================================
     # SCAN FILE
     # ====================================================
+
     def scan_file(self, file_path: str, is_full_scan: bool = False) -> dict:
+        """Convert a file to an image and run ONNX inference; returns a result dict."""
         self.load_model(aggressive=is_full_scan)
 
         file_path_obj = Path(file_path)
@@ -131,7 +138,9 @@ class MalwareScanner:
     # ====================================================
     # ONNX INFERENCE
     # ====================================================
+
     def _predict(self, image: Image.Image):
+        """Resize the image, run ONNX inference, and return (raw_output, class_index)."""
         image = image.resize((224, 224))
         img = np.array(image).astype(np.float32) / 255.0
         img = np.stack([img] * 3, axis=0)
@@ -146,6 +155,7 @@ class MalwareScanner:
         return output.tolist(), predicted
 
     def _hash_file(self, file_path: str) -> str:
+        """Compute SHA-256 hash of a file, falling back to hashing the path string on error."""
         sha256 = hashlib.sha256()
         try:
             with open(file_path, "rb") as f:

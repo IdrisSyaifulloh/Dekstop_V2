@@ -1,347 +1,620 @@
 """
-Result Dialog
-Dialog untuk menampilkan hasil scanning
+Result dialogs — single-file scan result and batch scan summary overlays.
 """
 import math
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QProgressBar, QFrame, QGraphicsOpacityEffect
+    QPushButton, QProgressBar, QFrame, QGraphicsOpacityEffect,
+    QSizePolicy
 )
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal
+from ui.styles.figma_theme import Colors, Typography, StyleHelper
 
 
-class ResultDialog(QWidget):
-    """Custom result dialog dengan desain modern, smooth dan elegan"""
-    def __init__(self, result_data, parent=None):
+# ── Shared animated overlay base ──────────────────────────────────────────────
+
+class _BaseOverlay(QWidget):
+    """
+    Full-screen dark scrim that fades in/out and sizes itself to the parent widget.
+    Subclasses build their own card UI on top of this.
+    """
+
+    def __init__(self, parent=None):
+        """Buat lapisan gelap fullscreen dan animasi fade untuk dialog turunan."""
         super().__init__(parent)
-        self.result_data = result_data
-        self.setObjectName("resultOverlay")
+        self.setObjectName("baseOverlay")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setup_ui()
-        self._animate_entry()
+        self.setStyleSheet("QWidget#baseOverlay{background:rgba(5,5,10,0.82);}")
 
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Opacity effect drives fade animations
+        self._opacity = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._opacity)
+        self._opacity.setOpacity(0)
 
-        # Check if this is a full scan result OR missing 'result' key (treat as full scan)
-        is_full_scan = self.result_data.get('is_full_scan', False) or ('result' not in self.result_data)
+        # Fade in animation
+        self._fade_in = QPropertyAnimation(self._opacity, b"opacity")
+        self._fade_in.setDuration(260)
+        self._fade_in.setStartValue(0.0)
+        self._fade_in.setEndValue(1.0)
+        self._fade_in.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        if is_full_scan or 'result' not in self.result_data:
-            # Handle full scan result or data without 'result' key
-            is_safe = not self.result_data.get('is_malware', False)
-            confidence = self.result_data.get('confidence', 100) / 100.0
-            result_type = "Benign" if is_safe else "Malware"
-        else:
-            # Determine result type for single file scan
-            result_type = self.result_data['result']
-            is_safe = result_type == "Benign"
-            predicted_output = self.result_data['model']['predicted_output']
+        # Fade out animation — destroys widget when done
+        self._fade_out = QPropertyAnimation(self._opacity, b"opacity")
+        self._fade_out.setDuration(180)
+        self._fade_out.setStartValue(1.0)
+        self._fade_out.setEndValue(0.0)
+        self._fade_out.setEasingCurve(QEasingCurve.Type.InCubic)
+        self._fade_out.finished.connect(self._destroy)
 
-            # Handle different output formats (ONNX vs PyTorch)
-            if isinstance(predicted_output, list):
-                # Already a list (ONNX format or PyTorch format)
-                if len(predicted_output) == 2:
-                    # Direct probabilities [benign, malware]
-                    probs = predicted_output
-                else:
-                    # Nested list [[benign, malware]]
-                    probs = predicted_output[0] if isinstance(predicted_output[0], list) else predicted_output
-            else:
-                # Single value or other format
-                probs = [predicted_output, 1 - predicted_output]
-
-            # Calculate confidence using softmax-like normalization
-            # Convert logits to probabilities if needed
-            exp_probs = [math.exp(p) if p < 100 else math.exp(min(p, 100)) for p in probs]
-            total = sum(exp_probs)
-
-            if total > 0:
-                probabilities = [p / total for p in exp_probs]
-                confidence = max(probabilities)
-            else:
-                confidence = 0.5
-
-            # Pastikan tidak melebihi 100%
-            confidence = min(confidence, 1.0)
-
-        # Card container
-        card = QFrame()
-        card.setObjectName("resultContainer")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(0)
-
-        # === HEADER SECTION - Status Banner ===
-        header = QFrame()
-        header.setObjectName("resultHeader")
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(35, 30, 35, 30)
-        header_layout.setSpacing(12)
-
-        # Status icon dan title
-        status_row = QHBoxLayout()
-        status_row.setSpacing(15)
-        status_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # HAPUS status_icon (bulatan merah)
-        # icon_text = "" if not is_safe else ""
-        # status_icon = QLabel(icon_text)
-        # status_icon.setFixedSize(50, 50)
-        # status_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # status_icon.setStyleSheet(f"""
-        #     font-size: 32px;
-        #     font-weight: bold;
-        #     color: white;
-        #     background: {'rgba(50, 205, 50, 1)' if is_safe else 'rgba(239, 68, 68, 1)'};
-        #     border-radius: 25px;
-        # """)
-        # status_row.addWidget(status_icon)
-
-        # Title
-        title_text = "File Aman" if is_safe else "Terdeteksi Ancaman"
-        title_label = QLabel(title_text)
-        title_label.setStyleSheet("""
-            font-size: 24px;
-            font-weight: 600;
-            color: white;
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-        """)
-        status_row.addWidget(title_label)
-        status_row.addStretch()
-
-        header_layout.addLayout(status_row)
-
-        # Style header - konsisten warna mango/orange
-        header.setStyleSheet(f"""
-            QFrame#resultHeader {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {'#32CD32' if is_safe else '#FF8C00'}, 
-                    stop:1 {'#90EE90' if is_safe else '#FFA500'});
-                border-radius: 20px 20px 0 0;
-            }}
-        """)
-        card_layout.addWidget(header)
-
-        # === CONTENT SECTION ===
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(35, 30, 35, 30)
-        content_layout.setSpacing(20)
-
-        # File Info Card
-        file_card = QFrame()
-        file_card.setObjectName("infoCard")
-        file_layout = QVBoxLayout(file_card)
-        file_layout.setContentsMargins(20, 16, 20, 16)
-        file_layout.setSpacing(8)
-
-        file_header = QLabel(" INFORMASI FILE")
-        file_header.setStyleSheet("""
-            font-size: 11px;
-            font-weight: 600;
-            color: #6B7280;
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-            letter-spacing: 0.5px;
-        """)
-        file_layout.addWidget(file_header)
-
-        # File name - handle both formats
-        if is_full_scan:
-            file_name_text = self.result_data.get('file_name', 'Unknown')
-        else:
-            file_name_text = self.result_data['file']['file_name']
-
-        file_name = QLabel(file_name_text)
-        file_name.setWordWrap(True)
-        file_name.setMaximumWidth(480)
-        file_name.setStyleSheet("""
-            font-size: 14px;
-            font-weight: 500;
-            color: #1F2937;
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-            padding: 4px 0;
-        """)
-        file_layout.addWidget(file_name)
-
-        file_card.setStyleSheet("""
-            QFrame#infoCard {
-                background: #F9FAFB;
-                border: 1px solid #E5E7EB;
-                border-radius: 12px;
-            }
-        """)
-        content_layout.addWidget(file_card)
-
-        # Detection Result Card - warna konsisten
-        detect_card = QFrame()
-        detect_card.setObjectName("detectCard")
-        detect_layout = QVBoxLayout(detect_card)
-        detect_layout.setContentsMargins(20, 16, 20, 16)
-        detect_layout.setSpacing(8)
-
-        detect_header = QLabel(" HASIL DETEKSI")
-        detect_header.setStyleSheet("""
-            font-size: 11px;
-            font-weight: 600;
-            color: #6B7280;
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-            letter-spacing: 0.5px;
-        """)
-        detect_layout.addWidget(detect_header)
-
-        # Detection result - handle both formats
-        if is_full_scan:
-            if is_safe:
-                result_text = "Aman - Tidak Ada Ancaman"
-            else:
-                threat_count = len(self.result_data.get('threats', []))
-                result_text = f"Terdeteksi {threat_count} Ancaman"
-        else:
-            result_text = result_type
-
-        detect_value = QLabel(result_text)
-        detect_value.setStyleSheet(f"""
-            font-size: 20px;
-            font-weight: 700;
-            color: {'#32CD32' if is_safe else '#FF8C00'};
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-        """)
-        detect_layout.addWidget(detect_value)
-
-        # Add details for full scan
-        if is_full_scan:
-            details_text = self.result_data.get('details', '')
-            if details_text:
-                details_label = QLabel(details_text)
-                details_label.setWordWrap(True)
-                details_label.setStyleSheet("""
-                    font-size: 12px;
-                    color: #6B7280;
-                    font-family: 'Inter', 'Segoe UI', sans-serif;
-                    margin-top: 8px;
-                """)
-                detect_layout.addWidget(details_label)
-
-        detect_card.setStyleSheet(f"""
-            QFrame#detectCard {{
-                background: {'rgba(144, 238, 144, 0.2)' if is_safe else 'rgba(255, 165, 0, 0.15)'};
-                border: 2px solid {'rgba(50, 205, 50, 0.4)' if is_safe else 'rgba(255, 140, 0, 0.5)'};
-                border-radius: 12px;
-            }}
-        """)
-        content_layout.addWidget(detect_card)
-
-        # HAPUS warning banner yang kosong
-        # if not is_safe:
-        #     warning = QFrame()
-        #     warning.setObjectName("warningBanner")
-        #     warn_layout = QHBoxLayout(warning)
-        #     warn_layout.setContentsMargins(16, 14, 16, 14)
-        #     warn_layout.setSpacing(12)
-        #     warning.setStyleSheet("""
-        #         QFrame#warningBanner {
-        #             background: rgba(255, 165, 0, 0.1);
-        #             border-left: 4px solid #FFA500;
-        #             border-radius: 10px;
-        #         }
-        #     """)
-        #     content_layout.addWidget(warning)
-
-        card_layout.addWidget(content)
-
-        # === FOOTER SECTION ===
-        footer = QWidget()
-        footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(35, 20, 35, 30)
-        footer_layout.setSpacing(0)
-
-        # Device info - handle both formats
-        if is_full_scan:
-            device_name = "MangoDefend Scanner"
-        else:
-            device_data = self.result_data.get('device', {})
-            device_name = device_data.get('device_name', 'MangoDefend Scanner')
-
-        device_info = QLabel(f" {device_name}")
-        device_info.setStyleSheet("""
-            font-size: 12px;
-            color: #9CA3AF;
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-        """)
-        footer_layout.addWidget(device_info)
-        footer_layout.addStretch()
-
-        # Close button - warna konsisten
-        self.close_btn = QPushButton("Selesai")
-        self.close_btn.clicked.connect(self.close_dialog)
-        self.close_btn.setFixedSize(100, 40)
-        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.close_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {'#32CD32' if is_safe else '#FFA500'};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 14px;
-                font-family: 'Inter', 'Segoe UI', sans-serif;
-            }}
-            QPushButton:hover {{
-                background: {'#90EE90' if is_safe else '#FFB732'};
-            }}
-            QPushButton:pressed {{
-                background: {'#228B22' if is_safe else '#FF8C00'};
-            }}
-        """)
-        footer_layout.addWidget(self.close_btn)
-
-        card_layout.addWidget(footer)
-
-        layout.addWidget(card)
-
-        # Main container style
-        self.setStyleSheet("""
-            QWidget#resultOverlay {
-                background: rgba(17, 24, 39, 0.85);
-            }
-            QFrame#resultContainer {
-                background: white;
-                border-radius: 20px;
-                min-width: 550px;
-                max-width: 580px;
-            }
-        """)
-
-    def _animate_entry(self):
-        """Animate dialog entry"""
-        self.opacity_effect = QGraphicsOpacityEffect(self)
-        self.setGraphicsEffect(self.opacity_effect)
-        
-        self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.fade_animation.setDuration(300)
-        self.fade_animation.setStartValue(0.0)
-        self.fade_animation.setEndValue(1.0)
-        self.fade_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-    def close_dialog(self):
-        """Close dengan fade out"""
-        self.fade_out = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.fade_out.setDuration(200)
-        self.fade_out.setStartValue(1.0)
-        self.fade_out.setEndValue(0.0)
-        self.fade_out.setEasingCurve(QEasingCurve.Type.InCubic)
-        self.fade_out.finished.connect(self._final_close)
-        self.fade_out.start()
-
-    def _final_close(self):
-        self.hide()
-        self.deleteLater()
+    # ── Public ────────────────────────────────────────────────────────────────
 
     def show_dialog(self):
+        """Expand to parent size, show, and fade in."""
         if self.parent():
             self.setGeometry(self.parent().rect())
         self.show()
         self.raise_()
-        self.fade_animation.start()
+        self._fade_in.start()
+
+    def close_dialog(self):
+        """Fade out and schedule deletion."""
+        self._fade_out.start()
+
+    def _destroy(self):
+        """Hide and delete this widget after fade-out completes."""
+        self.hide()
+        self.deleteLater()
+
+    # ── Card & widget factories ────────────────────────────────────────────────
+
+    @staticmethod
+    def _card(min_w=540, max_w=600, radius=24) -> tuple["QFrame", "QVBoxLayout"]:
+        """Create and return a centered dialog card with zero-margin layout."""
+        card = QFrame()
+        card.setObjectName("dialogCard")
+        card.setMinimumWidth(min_w)
+        card.setMaximumWidth(max_w)
+        card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        card.setStyleSheet(f"""
+            QFrame#dialogCard {{
+                background: #131317;
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: {radius}px;
+            }}
+        """)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        return card, lay
+
+    @staticmethod
+    def _divider() -> QFrame:
+        """Return a 1px horizontal divider line."""
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("background:rgba(255,255,255,0.07);max-height:1px;border:none;")
+        return line
+
+    @staticmethod
+    def _micro_label(text: str) -> QLabel:
+        """Return a small uppercase section header label."""
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"""
+            color: {Colors.DARK_TEXT_MUTED};
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            background: transparent;
+            font-family: {Typography.FONT_FAMILY};
+        """)
+        return lbl
+
+    @staticmethod
+    def _value_label(text: str, size="14px", color=Colors.DARK_TEXT_PRIMARY,
+                     bold=False) -> QLabel:
+        """Return a standard value label with configurable size, color, and weight."""
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"""
+            color: {color};
+            font-size: {size};
+            font-weight: {'700' if bold else '400'};
+            background: transparent;
+            font-family: {Typography.FONT_FAMILY};
+        """)
+        return lbl
+
+
+# ── Single-file scan result dialog ────────────────────────────────────────────
+
+class ResultDialog(_BaseOverlay):
+    """Full-screen overlay showing the result of a single-file scan."""
+
+    def __init__(self, result_data: dict, parent=None):
+        """Terima data hasil scan satu file lalu bangun dialog hasilnya."""
+        super().__init__(parent)
+        self.result_data = result_data
+        self._build_ui()
+
+    # ── Data parsing ──────────────────────────────────────────────────────────
+
+    def _parse(self):
+        """
+        Extract is_safe, confidence, result_type, and is_full from result_data.
+        Handles both single-file and batch-style result dicts.
+        """
+        rd      = self.result_data
+        is_full = rd.get("is_full_scan", False) or ("result" not in rd)
+
+        if is_full:
+            is_safe     = not rd.get("is_malware", False)
+            confidence  = rd.get("confidence", 100) / 100.0
+            result_type = "Benign" if is_safe else "Malware"
+        else:
+            result_type = rd["result"]
+            is_safe     = result_type == "Benign"
+            po          = rd["model"]["predicted_output"]
+            # Normalize predicted output to a 2-element probability list
+            if isinstance(po, list):
+                probs = po if len(po) == 2 else (po[0] if isinstance(po[0], list) else po)
+            else:
+                probs = [po, 1 - po]
+            # Softmax-style confidence from raw logits
+            exp_p      = [math.exp(min(p, 100)) for p in probs]
+            tot        = sum(exp_p)
+            confidence = min(max(exp_p) / tot if tot else 0.5, 1.0)
+
+        return is_safe, confidence, result_type, is_full
+
+    # ── UI construction ───────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        """Build the full dialog: header, file info block, result block, footer."""
+        is_safe, confidence, result_type, is_full = self._parse()
+        rd = self.result_data
+
+        accent        = Colors.GREEN_500 if is_safe else Colors.ORANGE_500
+        accent_dim    = "rgba(50,205,50,0.15)"  if is_safe else "rgba(255,165,0,0.12)"
+        accent_border = "rgba(50,205,50,0.35)"  if is_safe else "rgba(255,165,0,0.35)"
+        status_icon   = "✓" if is_safe else "✕"
+        status_text   = "File Aman" if is_safe else "Ancaman Terdeteksi"
+        header_grad   = (
+            "stop:0 rgba(50,205,50,0.25), stop:1 rgba(16,185,129,0.12)"
+            if is_safe else
+            "stop:0 rgba(255,140,0,0.25), stop:1 rgba(255,107,53,0.12)"
+        )
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        card, card_lay = self._card(min_w=520, max_w=580)
+
+        card_lay.addWidget(self._build_header(
+            accent, accent_border, header_grad,
+            status_icon, status_text, confidence
+        ))
+
+        card_lay.addWidget(self._build_body(rd, is_safe, is_full, accent_dim, accent_border, result_type))
+        card_lay.addWidget(self._divider())
+        card_lay.addWidget(self._build_footer(rd))
+
+        root_layout.addWidget(card)
+
+    def _build_header(self, accent, accent_border, header_grad,
+                      status_icon, status_text, confidence) -> QFrame:
+        """Build the colored header with status icon, title, and confidence bar."""
+        header = QFrame()
+        header.setObjectName("resultHeader")
+        header.setStyleSheet(f"""
+            QFrame#resultHeader {{
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:1, {header_grad});
+                border-radius: 24px 24px 0 0;
+                border-bottom: 1px solid {accent_border};
+            }}
+        """)
+        lay = QVBoxLayout(header)
+        lay.setContentsMargins(36, 32, 36, 28)
+        lay.setSpacing(10)
+
+        # Icon + title row
+        top_row = QHBoxLayout()
+        top_row.setSpacing(16)
+
+        icon_lbl = QLabel(status_icon)
+        icon_lbl.setFixedSize(52, 52)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_lbl.setStyleSheet(f"""
+            font-size: 26px; font-weight: 900; color: white;
+            background: {accent}; border-radius: 26px;
+        """)
+        top_row.addWidget(icon_lbl)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        title_lbl = QLabel(status_text)
+        title_lbl.setStyleSheet(f"""
+            color: white; font-size: 22px; font-weight: 700;
+            background: transparent; font-family: {Typography.FONT_FAMILY};
+        """)
+        sub_lbl = QLabel(f"Keyakinan model: {confidence:.0%}")
+        sub_lbl.setStyleSheet(f"""
+            color: rgba(255,255,255,0.65); font-size: 12px;
+            background: transparent; font-family: {Typography.FONT_FAMILY};
+        """)
+        title_col.addWidget(title_lbl)
+        title_col.addWidget(sub_lbl)
+        top_row.addLayout(title_col)
+        top_row.addStretch()
+        lay.addLayout(top_row)
+
+        # Confidence progress bar
+        conf_bar = QProgressBar()
+        conf_bar.setRange(0, 100)
+        conf_bar.setValue(int(confidence * 100))
+        conf_bar.setTextVisible(False)
+        conf_bar.setFixedHeight(6)
+        conf_bar.setStyleSheet(f"""
+            QProgressBar{{background:rgba(255,255,255,0.15);border-radius:3px;border:none;}}
+            QProgressBar::chunk{{background:{accent};border-radius:3px;}}
+        """)
+        lay.addWidget(conf_bar)
+        return header
+
+    def _build_body(self, rd, is_safe, is_full, accent_dim, accent_border, result_type) -> QWidget:
+        """Build the body section with file info, detection result, and warning strip."""
+        body = QWidget()
+        lay  = QVBoxLayout(body)
+        lay.setContentsMargins(36, 24, 36, 24)
+        lay.setSpacing(16)
+
+        # File information block
+        file_name = rd.get("file_name", "Unknown") if is_full else rd["file"]["file_name"]
+        file_path = "" if is_full else rd["file"].get("file_path", "")
+        file_size = None if is_full else rd["file"].get("file_size")
+        lay.addWidget(self._info_block(
+            "INFORMASI FILE",
+            [
+                ("Nama",    file_name),
+                ("Lokasi",  file_path or "—"),
+                ("Ukuran",  f"{file_size / 1024:.1f} KB" if file_size else "—"),
+            ]
+        ))
+
+        # Detection result block
+        detect_color = Colors.GREEN_500 if is_safe else Colors.ORANGE_500
+        model_name   = "—" if is_full else rd.get("model", {}).get("model", "Modelv3.onnx")
+        device_name  = "—" if is_full else rd.get("device", {}).get("device", "CPU")
+        lay.addWidget(self._result_block(
+            result_type, detect_color, accent_dim, model_name, device_name
+        ))
+
+        return body
+
+    def _build_footer(self, rd) -> QWidget:
+        """Build the footer with timestamp and close button."""
+        footer = QWidget()
+        lay    = QHBoxLayout(footer)
+        lay.setContentsMargins(36, 16, 36, 20)
+
+        ts = rd.get("timestamp", "")
+        if ts:
+            ts_lbl = QLabel(f" {ts}")
+            ts_lbl.setStyleSheet(f"""
+                color:{Colors.DARK_TEXT_MUTED};font-size:11px;
+                background:transparent;font-family:{Typography.FONT_FAMILY};
+            """)
+            lay.addWidget(ts_lbl)
+        lay.addStretch()
+
+        close_btn = QPushButton("Selesai")
+        close_btn.setFixedSize(110, 40)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.clicked.connect(self.close_dialog)
+        close_btn.setStyleSheet(StyleHelper.pill_button_primary(40))
+        lay.addWidget(close_btn)
+        return footer
+
+    # ── Sub-builders ──────────────────────────────────────────────────────────
+
+    def _info_block(self, title: str, rows: list) -> QFrame:
+        """Build a key-value information block with a section title."""
+        frame = QFrame()
+        frame.setStyleSheet("""
+            QFrame{background:rgba(255,255,255,0.04);border:none;border-radius:14px;}
+        """)
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(10)
+        lay.addWidget(self._micro_label(title))
+
+        for label, val in rows:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            k = QLabel(label)
+            k.setFixedWidth(60)
+            k.setStyleSheet(f"""
+                color:{Colors.DARK_TEXT_MUTED};font-size:12px;
+                background:transparent;font-family:{Typography.FONT_FAMILY};
+            """)
+            v = QLabel(val)
+            v.setWordWrap(True)
+            v.setStyleSheet(f"""
+                color:{Colors.DARK_TEXT_PRIMARY};font-size:12px;
+                background:transparent;font-family:{Typography.FONT_FAMILY};
+            """)
+            row.addWidget(k)
+            row.addWidget(v, 1)
+            lay.addLayout(row)
+        return frame
+
+    def _result_block(self, result_type, color, bg, model_name, device_name) -> QFrame:
+        """Build the detection result block showing BENIGN or MALWARE."""
+        frame = QFrame()
+        frame.setStyleSheet(f"""
+            QFrame{{background:{bg};border:none;border-radius:14px;}}
+        """)
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(6)
+        lay.addWidget(self._micro_label("HASIL DETEKSI"))
+
+        res_lbl = QLabel(result_type.upper())
+        res_lbl.setStyleSheet(f"""
+            color:{color};font-size:28px;font-weight:900;
+            background:transparent;font-family:{Typography.FONT_FAMILY};
+        """)
+        lay.addWidget(res_lbl)
+
+        # Model and device metadata
+        meta = QHBoxLayout()
+        meta.setSpacing(16)
+        for txt in [f"Model: {model_name}", f"Device: {device_name}"]:
+            lbl = QLabel(txt)
+            lbl.setStyleSheet(f"""
+                color:{Colors.DARK_TEXT_MUTED};font-size:11px;
+                background:transparent;font-family:{Typography.FONT_FAMILY};
+            """)
+            meta.addWidget(lbl)
+        meta.addStretch()
+        lay.addLayout(meta)
+        return frame
+
+    def _warning_strip(self) -> QFrame:
+        """Build the orange warning strip shown for malware detections."""
+        frame = QFrame()
+        frame.setStyleSheet("""
+            QFrame{background:rgba(255,107,53,0.1);
+                   border-left:3px solid #FF6B35;
+                   border-radius:10px;}
+        """)
+        lay = QHBoxLayout(frame)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(10)
+
+        icon = QLabel("⚠")
+        icon.setStyleSheet("font-size:20px;color:#FF6B35;background:transparent;")
+        txt = QLabel("Segera hapus atau karantina file ini untuk melindungi perangkat Anda.")
+        txt.setWordWrap(True)
+        txt.setStyleSheet(f"""
+            color:#FFAA80;font-size:12px;font-weight:600;
+            background:transparent;font-family:{Typography.FONT_FAMILY};
+        """)
+        lay.addWidget(icon)
+        lay.addWidget(txt, 1)
+        return frame
+
+
+# ── Batch scan summary dialog ─────────────────────────────────────────────────
+
+class BatchResultDialog(_BaseOverlay):
+    """
+    Full-screen overlay showing a summary after a batch or device scan.
+    Emits quarantine_requested(list) when the user clicks 'Karantina Semua'.
+    """
+
+    quarantine_requested = Signal(list)
+
+    def __init__(self, summary: dict, parent=None):
+        """Terima ringkasan scan banyak file lalu bangun dialog rekapnya."""
+        super().__init__(parent)
+        self._summary = summary
+        self._build_ui()
+
+    # ── UI construction ───────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        """Build header, stat pills, notes, and footer from scan summary data."""
+        s       = self._summary
+        total   = s.get("scanned", 0)
+        malware = s.get("malware", 0)
+        clean   = s.get("clean", 0)
+        errors  = s.get("errors", 0)
+        results = s.get("results", [])
+        beyond  = s.get("continued_beyond_limit", False)
+        is_safe = malware == 0
+
+        accent        = Colors.GREEN_500 if is_safe else Colors.ORANGE_500
+        accent_border = "rgba(50,205,50,0.30)" if is_safe else "rgba(255,165,0,0.30)"
+        header_grad   = (
+            "stop:0 rgba(50,205,50,0.22), stop:1 rgba(16,185,129,0.10)"
+            if is_safe else
+            "stop:0 rgba(255,140,0,0.22), stop:1 rgba(255,107,53,0.10)"
+        )
+        status_icon = "✓" if is_safe else "✕"
+        status_text = "Perangkat Aman" if is_safe else f"{malware} Ancaman Ditemukan"
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        card, card_lay = self._card(min_w=500, max_w=560)
+
+        card_lay.addWidget(self._build_header(
+            accent, accent_border, header_grad, status_icon, status_text
+        ))
+        card_lay.addWidget(self._build_stats(total, clean, malware, errors))
+        card_lay.addWidget(self._build_notes(malware, errors, beyond))
+        card_lay.addWidget(self._divider())
+        card_lay.addWidget(self._build_footer(malware, results))
+
+        root_layout.addWidget(card)
+
+    def _build_header(self, accent, accent_border, header_grad,
+                      status_icon, status_text) -> QFrame:
+        """Build the colored header with status icon and scan result title."""
+        header = QFrame()
+        header.setObjectName("batchResultHeader")
+        header.setStyleSheet(f"""
+            QFrame#batchResultHeader {{
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:1,{header_grad});
+                border-radius: 24px 24px 0 0;
+                border-bottom: 1px solid {accent_border};
+            }}
+        """)
+        lay = QVBoxLayout(header)
+        lay.setContentsMargins(36, 30, 36, 26)
+        lay.setSpacing(8)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(14)
+
+        icon_lbl = QLabel(status_icon)
+        icon_lbl.setFixedSize(52, 52)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_lbl.setStyleSheet(f"""
+            font-size: 26px; font-weight: 900; color: white;
+            background: {accent}; border-radius: 26px;
+        """)
+        top_row.addWidget(icon_lbl)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        t1 = QLabel("Hasil Pemindaian")
+        t1.setStyleSheet(f"""
+            color:rgba(255,255,255,0.55);font-size:11px;font-weight:700;
+            letter-spacing:1px;background:transparent;
+            font-family:{Typography.FONT_FAMILY};
+        """)
+        t2 = QLabel(status_text)
+        t2.setStyleSheet(f"""
+            color:white;font-size:20px;font-weight:700;
+            background:transparent;font-family:{Typography.FONT_FAMILY};
+        """)
+        title_col.addWidget(t1)
+        title_col.addWidget(t2)
+        top_row.addLayout(title_col)
+        top_row.addStretch()
+        lay.addLayout(top_row)
+        return header
+
+    def _build_stats(self, total, clean, malware, errors) -> QWidget:
+        """Build the row of stat pills showing totals, clean, malware, and error counts."""
+        row = QHBoxLayout()
+        row.setContentsMargins(36, 20, 36, 0)
+        row.setSpacing(10)
+
+        row.addWidget(self._stat_pill(total,   "TOTAL",   Colors.DARK_TEXT_SECONDARY, "rgba(255,255,255,0.05)"))
+        row.addWidget(self._stat_pill(clean,   "AMAN",    Colors.GREEN_500,            "rgba(50,205,50,0.10)"))
+        row.addWidget(self._stat_pill(malware, "MALWARE", Colors.ORANGE_500,           "rgba(255,165,0,0.10)"))
+        if errors:
+            row.addWidget(self._stat_pill(errors, "GAGAL", Colors.RED_500, "rgba(255,107,53,0.10)"))
+
+        container = QWidget()
+        container.setStyleSheet("background:transparent;")
+        container.setLayout(row)
+        return container
+
+    def _stat_pill(self, val, label, color, bg) -> QFrame:
+        """Build a single rounded stat pill with a large number and label."""
+        pill = QFrame()
+        pill.setStyleSheet(f"QFrame{{background:{bg};border:none;border-radius:14px;}}")
+        lay = QVBoxLayout(pill)
+        lay.setContentsMargins(16, 10, 16, 10)
+        lay.setSpacing(2)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        v = QLabel(str(val))
+        v.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.setStyleSheet(f"""
+            color:{color};font-size:26px;font-weight:900;
+            background:transparent;font-family:{Typography.FONT_FAMILY};
+        """)
+        lbl = QLabel(label)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet(f"""
+            color:rgba(255,255,255,0.45);font-size:10px;font-weight:600;
+            letter-spacing:0.5px;background:transparent;
+            font-family:{Typography.FONT_FAMILY};
+        """)
+        lay.addWidget(v)
+        lay.addWidget(lbl)
+        return pill
+
+    def _build_notes(self, malware, errors, beyond) -> QWidget:
+        """Build contextual note rows below the stat pills."""
+        notes = QWidget()
+        notes.setStyleSheet("background:transparent;")
+        lay = QVBoxLayout(notes)
+        lay.setContentsMargins(36, 14, 36, 10)
+        lay.setSpacing(6)
+
+        if beyond:
+            self._add_note(lay, "", "Scan dilanjutkan melewati batas default.", "rgba(255,255,255,0.35)")
+        if malware > 0:
+            self._add_note(lay, "⚠",
+                f"{malware} file berbahaya ditemukan. Segera karantina untuk melindungi perangkat.",
+                Colors.ORANGE_400)
+        if not malware and not errors:
+            self._add_note(lay, "✓", "Tidak ada ancaman yang terdeteksi pada perangkat Anda.", Colors.GREEN_500)
+
+        return notes
+
+    def _add_note(self, layout, icon: str, text: str, color: str):
+        """Add an icon + text note row to a layout."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        if icon:
+            ic = QLabel(icon)
+            ic.setFixedWidth(20)
+            ic.setStyleSheet(f"font-size:14px;color:{color};background:transparent;")
+            row.addWidget(ic)
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"""
+            color:{color};font-size:12px;background:transparent;
+            font-family:{Typography.FONT_FAMILY};
+        """)
+        row.addWidget(lbl, 1)
+        layout.addLayout(row)
+
+    def _build_footer(self, malware: int, results: list) -> QWidget:
+        """Build the footer with close and optional quarantine buttons."""
+        footer = QWidget()
+        lay    = QHBoxLayout(footer)
+        lay.setContentsMargins(36, 14, 36, 20)
+        lay.setSpacing(10)
+        lay.addStretch()
+
+        close_btn = QPushButton("Tutup")
+        close_btn.setFixedSize(100, 40)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.clicked.connect(self.close_dialog)
+        close_btn.setStyleSheet(StyleHelper.pill_button_outline(40))
+        lay.addWidget(close_btn)
+
+        if malware > 0:
+            q_btn = QPushButton(f"Karantina {malware} File")
+            q_btn.setFixedHeight(40)
+            q_btn.setMinimumWidth(150)
+            q_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            q_btn.clicked.connect(lambda: self._on_quarantine(results))
+            q_btn.setStyleSheet(StyleHelper.pill_button_primary(40))
+            lay.addWidget(q_btn)
+
+        return footer
+
+    def _on_quarantine(self, results: list):
+        """Emit quarantine_requested with the malware results list and close."""
+        self.quarantine_requested.emit(results)
+        self.close_dialog()

@@ -103,6 +103,7 @@ class StyleHelper:
                 color: white;
                 border: none;
                 border-radius: {r}px;
+                padding: 0 20px;
                 font-weight: 700;
                 font-size: 14px;
                 font-family: {Typography.FONT_FAMILY};
@@ -132,6 +133,7 @@ class StyleHelper:
                 color: white;
                 border: none;
                 border-radius: {r}px;
+                padding: 0 20px;
                 font-weight: 700;
                 font-size: 14px;
                 font-family: {Typography.FONT_FAMILY};
@@ -155,6 +157,7 @@ class StyleHelper:
                 color: {Colors.ORANGE_400};
                 border: 2px solid {Colors.ORANGE_500};
                 border-radius: {r}px;
+                padding: 0 20px;
                 font-weight: 700;
                 font-size: 14px;
                 font-family: {Typography.FONT_FAMILY};
@@ -171,10 +174,11 @@ class StyleHelper:
     # ── Labels ───────────────────────────────────────────────
 
     @staticmethod
-    def section_header() -> str:
-        """White bold 18px section heading label."""
+    def section_header(is_dark: bool = True) -> str:
+        """Bold 18px section heading label, theme-aware."""
+        color = Colors.DARK_TEXT_PRIMARY if is_dark else Colors.LIGHT_TEXT_PRIMARY
         return f"""
-            color: white;
+            color: {color};
             font-size: 18px;
             font-weight: bold;
             background: transparent;
@@ -255,7 +259,7 @@ QWidget#sidebar {{
 
 QLabel#logoTitle {{
     color: {Colors.ORANGE_400};
-    font-size: 21px;
+    font-size: 18px;
     font-weight: bold;
     font-family: {Typography.FONT_FAMILY};
     background: transparent;
@@ -263,9 +267,9 @@ QLabel#logoTitle {{
 
 QLabel#logoSubtitle {{
     color: {Colors.DARK_TEXT_MUTED};
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 600;
-    letter-spacing: 2px;
+    letter-spacing: 1px;
     font-family: {Typography.FONT_FAMILY};
 }}
 
@@ -453,6 +457,16 @@ QLabel.caption {{
     font-size: 12px;
     font-family: {Typography.FONT_FAMILY};
 }}
+
+QToolTip {{
+    background: {Colors.DARK_BG_TERTIARY};
+    color: {Colors.DARK_TEXT_PRIMARY};
+    border: 1px solid rgba(255, 165, 0, 0.35);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: {Typography.FONT_FAMILY};
+}}
 """
 
 
@@ -483,7 +497,7 @@ QWidget#sidebar {{
 
 QLabel#logoTitle {{
     color: {Colors.ORANGE_500};
-    font-size: 21px;
+    font-size: 18px;
     font-weight: bold;
     font-family: {Typography.FONT_FAMILY};
     background: transparent;
@@ -491,9 +505,9 @@ QLabel#logoTitle {{
 
 QLabel#logoSubtitle {{
     color: {Colors.LIGHT_TEXT_MUTED};
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 600;
-    letter-spacing: 2px;
+    letter-spacing: 1px;
     font-family: {Typography.FONT_FAMILY};
 }}
 
@@ -678,6 +692,16 @@ QLabel.subheading {{
 
 QLabel.caption {{
     color: {Colors.LIGHT_TEXT_MUTED};
+    font-size: 12px;
+    font-family: {Typography.FONT_FAMILY};
+}}
+
+QToolTip {{
+    background: {Colors.LIGHT_BG_PRIMARY};
+    color: {Colors.LIGHT_TEXT_PRIMARY};
+    border: 1px solid rgba(255, 165, 0, 0.4);
+    border-radius: 8px;
+    padding: 6px 10px;
     font-size: 12px;
     font-family: {Typography.FONT_FAMILY};
 }}

@@ -21,12 +21,14 @@ class SpectrogramClassifier(nn.Module):
     Model CNN untuk klasifikasi malware menggunakan ResNet-18
     """
     def __init__(self, num_classes):
+        """Bangun ResNet-18 dan ganti layer terakhir agar output-nya dua kelas."""
         super(SpectrogramClassifier, self).__init__()
         self.model = models.resnet18(weights=None)
         in_features = self.model.fc.in_features
         self.model.fc = nn.Linear(in_features, num_classes)
 
     def forward(self, x):
+        """Jalankan input gambar melalui model dan kembalikan hasil prediksi mentah."""
         return self.model(x)
 
 # ============================================

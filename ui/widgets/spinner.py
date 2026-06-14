@@ -1,51 +1,56 @@
 """
-Animated Spinner Widget
-Custom animated loading spinner for MangoDefend
+Animated Spinner Widget — delta-time based for smooth rendering on any device.
 """
 from PySide6.QtWidgets import QWidget
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter, QPen, QColor
+
+from ui.core.anim_timer import AdaptiveTimer
 
 
 class AnimatedSpinner(QWidget):
-    """Custom animated spinner widget"""
+    """
+    Smooth arc spinner.  Speed is expressed in degrees-per-second so it
+    looks identical on a 30 fps budget laptop and a 144 Hz gaming machine.
+    """
+
+    _SPEED_DEG_S = 300.0
+
     def __init__(self, diameter=80, line_width=6, parent=None):
+        """Initialize the spinner with a fixed size and start the animation timer immediately."""
         super().__init__(parent)
         self.diameter = diameter
         self.line_width = line_width
-        self.angle = 0
+        self._angle = 0.0
         self.setFixedSize(diameter, diameter)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._rotate)
-        self.timer.start(16)  # ~60fps
+        self._timer = AdaptiveTimer(target_fps=60, parent=self)
+        self._timer.tick.connect(self._on_tick)
+        self._timer.start()
 
-    def _rotate(self):
-        self.angle = (self.angle + 6) % 360
+    def _on_tick(self, dt: float):
+        """Advance the spinner angle by speed * dt degrees and request a repaint."""
+        self._angle = (self._angle + self._SPEED_DEG_S * dt) % 360.0
         self.update()
 
     def paintEvent(self, event):
+        """Draw the static background track and the rotating arc at the current angle."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect()
         margin = self.line_width
+        draw_rect = rect.adjusted(margin, margin, -margin, -margin)
 
-        # Background circle
-        back_pen = QPen(QColor(255, 255, 255, 80), self.line_width)
+        back_pen = QPen(QColor(100, 100, 100, 60), self.line_width)
         back_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(back_pen)
-        painter.drawArc(
-            rect.adjusted(margin, margin, -margin, -margin),
-            0, 360 * 16
-        )
+        painter.drawArc(draw_rect, 0, 360 * 16)
 
-        # Animated arc
         arc_pen = QPen(QColor(255, 140, 0), self.line_width)
         arc_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(arc_pen)
-        span_angle = 120 * 16
-        painter.drawArc(
-            rect.adjusted(margin, margin, -margin, -margin),
-            int(self.angle * 16), span_angle
-        )
+        painter.drawArc(draw_rect, int(self._angle * 16), 120 * 16)
+
+        painter.end()

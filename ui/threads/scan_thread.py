@@ -6,23 +6,28 @@ import os
 import threading
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
-from core.scanner import MalwareScanner
 
 
 class ScanThread(QThread):
     """Thread for running malware scan on a single file."""
+
     finished = Signal(dict)
     error = Signal(str)
     progress = Signal(int, str)
 
     def __init__(self, file_path):
+        """Initialize the scan thread with the target file path."""
         super().__init__()
         self.file_path = file_path
-        self.scanner = MalwareScanner()
+        self.scanner = None
         self.is_canceled = False
 
     def run(self):
+        """Execute the scan: emit staged progress updates, then emit the final result."""
         try:
+            from core.scanner import MalwareScanner
+            self.scanner = MalwareScanner()
+
             stages = [
                 (10, "Memulai pemindaian..."),
                 (25, "Menganalisis file..."),
@@ -47,15 +52,17 @@ class ScanThread(QThread):
             self.error.emit(str(e))
 
     def cancel(self):
+        """Request cancellation of the running scan."""
         self.is_canceled = True
 
 
 class BatchScanThread(QThread):
     """Thread for scanning multiple files (folder or device scan)."""
-    file_scanned = Signal(dict)   # result for each file
+
+    file_scanned = Signal(dict)    # result for each file
     batch_finished = Signal(dict)  # summary
     error = Signal(str)
-    progress = Signal(int, str)   # percentage, message
+    progress = Signal(int, str)    # percentage, message
     limit_reached = Signal(dict)
 
     # Extensions to scan in batch mode (dangerous types)
@@ -70,10 +77,11 @@ class BatchScanThread(QThread):
     _DEVICE_SCAN_FILE_LIMIT = 2000
 
     def __init__(self, folder_path: str = None, full_device: bool = False):
+        """Initialize the batch scan thread for a folder path or a full-device scan."""
         super().__init__()
         self.folder_path = folder_path
         self.full_device = full_device
-        self.scanner = MalwareScanner()
+        self.scanner = None
         self.is_canceled = False
         self._enforce_device_limit = True
         self._limit_decision_event = threading.Event()
@@ -81,7 +89,10 @@ class BatchScanThread(QThread):
         self._limit_prompt_sent = False
 
     def run(self):
+        """Collect files, scan each one, emit per-file results, and emit a summary on completion."""
         try:
+            from core.scanner import MalwareScanner
+            self.scanner = MalwareScanner()
             self.scanner.load_model(aggressive=True)
 
             # Collect files to scan
@@ -156,7 +167,7 @@ class BatchScanThread(QThread):
             self.error.emit(str(e))
 
     def _collect_files(self) -> list:
-        """Collect files to scan."""
+        """Walk the target directories and return a deduplicated list of file paths to scan."""
         files = []
 
         if self.full_device:
@@ -192,12 +203,12 @@ class BatchScanThread(QThread):
             if not scan_dir.exists():
                 continue
             try:
-                # followlinks=True agar folder hidden via symlink/junction ikut di-scan
+                # followlinks=True so hidden folders via symlink/junction are included
                 for root, dirs, filenames in os.walk(scan_dir, followlinks=True):
                     if self.is_canceled:
                         break
 
-                    # Cycle detection – cegah infinite loop dari circular junction/symlink
+                    # Cycle detection — prevent infinite loop from circular junction/symlink
                     try:
                         real_root = os.path.realpath(root)
                     except (OSError, PermissionError):
@@ -237,7 +248,7 @@ class BatchScanThread(QThread):
         return files
 
     def _should_stop_at_limit(self, file_count: int) -> bool:
-        """Ask UI whether device scan should continue once safety limit is reached."""
+        """Emit a limit_reached signal once and block until the UI provides a continue decision."""
         if not self._enforce_device_limit or file_count < self._DEVICE_SCAN_FILE_LIMIT:
             return False
 
@@ -259,10 +270,11 @@ class BatchScanThread(QThread):
         return True
 
     def set_limit_decision(self, continue_all: bool):
-        """Receive UI decision after the device scan limit prompt."""
+        """Receive the user's decision from the UI and unblock the scan thread."""
         self._limit_continue_all = continue_all
         self._limit_decision_event.set()
 
     def cancel(self):
+        """Request cancellation and unblock any pending limit decision wait."""
         self.is_canceled = True
         self._limit_decision_event.set()

@@ -14,6 +14,7 @@ from ui.components.spinner import AnimatedSpinner
 class ScanningDialog(QWidget):
     """Scanning overlay with mango theme"""
     def __init__(self, parent=None):
+        """Buat overlay progress scan dan siapkan callback tombol batal."""
         super().__init__(parent)
         self.setObjectName("scanningOverlay")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -21,6 +22,7 @@ class ScanningDialog(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
+        """Susun kartu overlay berisi spinner, status, progress bar, dan tombol batal."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -73,6 +75,7 @@ class ScanningDialog(QWidget):
         self.apply_style()
 
     def apply_style(self, is_dark=False):
+        """Terapkan style terang/gelap untuk overlay scan."""
         if is_dark:
             self.setStyleSheet("""
                 QWidget#scanningOverlay {
@@ -183,21 +186,26 @@ class ScanningDialog(QWidget):
             """)
 
     def set_cancel_callback(self, callback):
+        """Simpan fungsi yang akan dipanggil ketika user menekan tombol Batalkan."""
         self._cancel_callback = callback
 
     def _handle_cancel(self):
+        """Jalankan callback batal jika sudah didaftarkan oleh parent window."""
         if self._cancel_callback:
             self._cancel_callback()
 
     def update_progress(self, value, message):
+        """Perbarui angka progress dan pesan status yang tampil ke user."""
         self.progress_bar.setValue(value)
         self.status_label.setText(message)
 
     def start(self):
+        """Tampilkan overlay di atas parent dan bawa ke paling depan."""
         if self.parent():
             self.setGeometry(self.parent().rect())
         self.show()
         self.raise_()
 
     def finish(self):
+        """Sembunyikan overlay setelah proses scan selesai."""
         self.hide()
