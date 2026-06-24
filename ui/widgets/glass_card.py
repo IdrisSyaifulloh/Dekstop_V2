@@ -1,90 +1,153 @@
 """
-Reusable dashboard card widgets.
+Widget Kartu Dasbor yang Bisa Digunakan Ulang.
+
+Berisi tiga jenis kartu yang digunakan di seluruh aplikasi MangoDefend:
+
+1. GlassCard    — Kartu kaca (glassmorphism) dengan animasi border saat diarahkan mouse.
+2. SoftCard     — Kartu umum yang lebih padat, mendukung tema, aksen warna, hover, dan klik.
+3. SpotlightCard — Kartu showcase gelap dengan border tebal dan kontras tinggi.
+4. StatCard     — Kartu statistik mini untuk angka-angka di dashboard.
+
+Semua kartu menggambar dirinya sendiri menggunakan paintEvent (bukan CSS stylesheet)
+agar animasi hover/klik bisa dikendalikan dengan presisi tinggi.
 """
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QGraphicsDropShadowEffect
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QLinearGradient
-from ui.styles.figma_theme import Colors
-from ui.core.anim_timer import AdaptiveTimer
+from ui.styles.figma_theme import Colors  # Konstanta warna dari design system
+from ui.core.anim_timer import AdaptiveTimer  # Timer berbasis delta waktu untuk animasi
 
 
 class GlassCard(QFrame):
     """
-    Glassmorphism card with smooth hover border transition.
-    Border animates white → orange as the mouse enters.
+    Kartu bergaya 'kaca' (glassmorphism): latar transparan dengan border yang
+    berubah warna secara mulus dari putih ke oranye saat mouse diarahkan ke kartu.
+
+    Cara kerja animasi hover:
+      - self._hover_t adalah angka 0.0 (idle) hingga 1.0 (fully hovered).
+      - Saat mouse masuk, _hover_t bergerak menuju 1.0.
+      - Saat mouse pergi, _hover_t kembali ke 0.0.
+      - Warna border diinterpolasi antara putih dan oranye berdasarkan _hover_t.
+      - Timer dihentikan otomatis saat animasi selesai untuk menghemat CPU.
     """
 
     def __init__(self, parent=None, hover_effect=True):
-        """Siapkan kartu kaca dengan animasi border saat mouse diarahkan ke kartu."""
+        """
+        Siapkan kartu kaca dengan animasi border hover.
+
+        hover_effect : Jika True, border beranimasi saat mouse diarahkan ke kartu.
+        """
         super().__init__(parent)
         self.hover_effect = hover_effect
+
+        # Status apakah mouse sedang berada di atas kartu
         self._hovered = False
-        self._hover_t = 0.0   # 0.0 = idle, 1.0 = fully hovered
+
+        # Nilai animasi hover: 0.0 = idle, 1.0 = mouse di atas kartu
+        self._hover_t = 0.0
+
+        # Nama objek untuk penargetan CSS dari luar
         self.setObjectName("glassCard")
         self.setProperty("class", "glassCard")
 
+        # Timer adaptif yang menggerakkan animasi border ~60 kali per detik
+        # Timer hanya berjalan saat animasi sedang berlangsung, hemat CPU
         self._hover_timer = AdaptiveTimer(target_fps=60, parent=self)
         self._hover_timer.tick.connect(self._on_hover_tick)
 
-    # ── Animation ─────────────────────────────────────────────────────────────
+    # ── Animasi ─────────────────────────────────────────────────────────────
 
     def _on_hover_tick(self, dt: float):
-        """Smoothly interpolate _hover_t toward target (0 or 1). Stops when settled."""
+        """
+        Jalankan satu langkah animasi hover setiap tick.
+
+        Menggeser _hover_t menuju nilai target (1.0 saat hover, 0.0 saat tidak).
+        Saat sudah sangat dekat ke target, timer dihentikan otomatis.
+
+        Kecepatan: 5.5 saat masuk (cepat muncul), 4.5 saat keluar (lebih lambat).
+        dt : Waktu nyata yang berlalu sejak tick terakhir (detik).
+        """
         target = 1.0 if self._hovered else 0.0
+
+        # Kecepatan saat mouse masuk lebih tinggi dari saat mouse pergi
         speed  = 5.5 if self._hovered else 4.5
         diff   = target - self._hover_t
+
         if abs(diff) < 0.005:
+            # Animasi selesai — paskan tepat ke target dan hentikan timer
             self._hover_t = target
             self._hover_timer.stop()
         else:
+            # Gerakkan _hover_t mendekati target secara eksponensial
             self._hover_t += diff * (1.0 - pow(0.01, dt * speed))
+
+        # Minta Qt untuk menggambar ulang kartu dengan nilai _hover_t terbaru
         self.update()
 
-    # ── Mouse events ──────────────────────────────────────────────────────────
+    # ── Peristiwa Mouse ──────────────────────────────────────────────────────
 
     def enterEvent(self, event):
-        """Start hover animation on mouse enter."""
+        """Mulai animasi border saat mouse memasuki area kartu."""
         if self.hover_effect:
             self._hovered = True
+            # Mulai timer hanya jika belum berjalan (hindari mulai ulang yang tidak perlu)
             if not self._hover_timer.is_active():
                 self._hover_timer.start()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        """Reverse hover animation on mouse leave."""
+        """Balik animasi border saat mouse meninggalkan area kartu."""
         if self.hover_effect:
             self._hovered = False
             if not self._hover_timer.is_active():
                 self._hover_timer.start()
         super().leaveEvent(event)
 
-    # ── Paint ─────────────────────────────────────────────────────────────────
+    # ── Menggambar ─────────────────────────────────────────────────────────
 
     def paintEvent(self, event):
-        """Draw frosted glass fill and animated border."""
+        """
+        Gambar kartu kaca: latar transparan + border yang berubah warna sesuai hover.
+
+        Latar: isian putih sangat transparan (efek 'kaca').
+        Border: interpolasi warna dari putih (idle) ke oranye (hover penuh).
+                Ketebalan border juga sedikit bertambah saat hover.
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        rect   = self.rect()
-        radius = 24.0
-        t      = self._hover_t
+        rect   = self.rect()  # Area gambar seluruh widget
+        radius = 24.0         # Sudut melengkung kartu dalam piksel
+        t      = self._hover_t  # Nilai animasi saat ini (0.0–1.0)
 
+        # Buat path dengan sudut melengkung untuk dijadikan bentuk kartu
         path = QPainterPath()
         path.addRoundedRect(rect.x(), rect.y(), rect.width(), rect.height(), radius, radius)
 
-        # Semi-transparent white fill
+        # ── Latar belakang transparan (efek kaca) ──
+        # Alpha 13/255 ≈ 5% — sangat transparan, tampak seperti kaca
         painter.setClipPath(path)
         painter.fillPath(path, QBrush(QColor(255, 255, 255, 13)))
 
-        # Border: white at idle → orange at hover
+        # ── Border yang beranimasi ──
         painter.setClipping(False)
+
+        # Hitung alpha border: dari 26 (idle, samar) ke 77 (hover, lebih jelas)
         border_alpha = int(26 + (77 - 26) * t)
-        border_r     = int(255 * t)
-        border_g     = int(255 * (1.0 - t) + 165 * t)
-        border_b     = int(255 * (1.0 - t))
+
+        # Interpolasi warna border dari putih (255,255,255) ke oranye (255,165,0)
+        # t=0.0 → putih, t=1.0 → oranye
+        border_r = int(255 * t)                      # Merah: 0 → 255
+        border_g = int(255 * (1.0 - t) + 165 * t)   # Hijau: 255 → 165
+        border_b = int(255 * (1.0 - t))              # Biru: 255 → 0
+
         border_color = QColor(border_r, border_g, border_b, border_alpha)
+
+        # Ketebalan border sedikit bertambah saat hover: 1.0px → 1.5px
         painter.setPen(QPen(border_color, 1.0 + 0.5 * t))
         painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Gambar border di dalam batas widget (0.5px offset agar tidak terpotong)
         painter.drawRoundedRect(
             rect.x() + 0.5, rect.y() + 0.5,
             rect.width() - 1, rect.height() - 1,
@@ -95,97 +158,159 @@ class GlassCard(QFrame):
 
 class SoftCard(QFrame):
     """
-    Softer, denser card with solid fill, drop shadow, and animated hover/press states.
+    Kartu umum yang lebih padat dengan bayangan, hover, dan efek tekan.
 
-    States:
-    - Idle:   subtle fill + thin border
-    - Hover:  orange border glow (smooth transition)
-    - Press:  orange fill flash + bright border (if set_interactive(True))
+    Digunakan untuk sebagian besar kartu di halaman Protection, Scan, dan Update.
+
+    Status visual:
+      - Idle   : Isian solid tipis + border samar
+      - Hover  : Border oranye bersinar (transisi mulus)
+      - Tekan  : Kilatan isian oranye + border terang (jika set_interactive(True))
+
+    Sinyal:
+      clicked : Dikirim saat kartu ditekan dan dilepas (jika mode interaktif aktif).
     """
 
+    # Sinyal yang dikirim saat kartu diklik (hanya jika set_interactive(True))
     clicked = Signal()
 
     def __init__(self, parent=None, is_dark=True, accent=None, hover_effect=True):
-        """Siapkan kartu umum aplikasi yang bisa diberi tema, aksen, hover, dan klik."""
+        """
+        Siapkan kartu lunak dengan opsi tema, warna aksen, dan efek interaksi.
+
+        is_dark      : True = mode gelap, False = mode terang.
+        accent       : Warna aksen opsional (string hex, misal '#FF6B35').
+                       Jika diisi, memberikan tint warna pada sudut kiri atas kartu.
+        hover_effect : Jika True, border beranimasi oranye saat mouse di atas kartu.
+        """
         super().__init__(parent)
         self.is_dark      = is_dark
         self.hover_effect = hover_effect
-        self._hovered     = False
-        self._pressed     = False
-        self._hover_t     = 0.0   # 0.0 = idle, 1.0 = fully hovered
-        self._press_t     = 0.0   # 0.0 = idle, 1.0 = fully pressed
+
+        # Status mouse dan interaksi
+        self._hovered     = False   # Apakah mouse di atas kartu
+        self._pressed     = False   # Apakah kartu sedang ditekan
+
+        # Nilai animasi: 0.0 = idle, 1.0 = sepenuhnya hover/tekan
+        self._hover_t     = 0.0
+        self._press_t     = 0.0
+
+        # Mode interaktif: jika False, kartu tidak merespons klik
         self._interactive = False
+
+        # Jari-jari sudut melengkung kartu dalam piksel
         self._radius      = 18.0
+
+        # Simpan warna aksen sebagai objek QColor (atau None jika tidak ada)
         self._accent      = QColor(accent) if accent else None
 
+        # Nama objek untuk identifikasi
         self.setObjectName("softCard")
         self.setProperty("class", "softCard")
 
-        # Drop shadow
+        # ── Bayangan jatuh (drop shadow) ──
+        # Memberikan kesan kartu melayang sedikit di atas latar
         self._shadow = QGraphicsDropShadowEffect(self)
-        self._shadow.setBlurRadius(34)
-        self._shadow.setOffset(0, 12)
+        self._shadow.setBlurRadius(34)  # Seberapa lebar/kabur bayangan (lebih besar = lebih halus)
+        self._shadow.setOffset(0, 12)   # Bayangan jatuh 12px ke bawah (kesan cahaya dari atas)
         self.setGraphicsEffect(self._shadow)
-        self._apply_shadow()
+        self._apply_shadow()  # Atur warna bayangan sesuai tema
 
-        # Single timer drives both hover and press fade animations
+        # Timer adaptif yang menggerakkan animasi hover DAN tekan sekaligus
+        # Satu timer cukup untuk kedua animasi, lebih hemat sumber daya
         self._hover_timer = AdaptiveTimer(target_fps=60, parent=self)
         self._hover_timer.tick.connect(self._on_hover_tick)
 
-    # ── Theme & appearance ────────────────────────────────────────────────────
+    # ── Tema & Tampilan ──────────────────────────────────────────────────────
 
     def _apply_shadow(self):
-        """Update drop shadow color to match current theme."""
+        """
+        Perbarui warna bayangan sesuai tema aktif.
+        Mode gelap: bayangan hitam lebih kuat.
+        Mode terang: bayangan biru gelap lebih tipis agar tidak terlalu berat.
+        """
         self._shadow.setColor(
             QColor(0, 0, 0, 95) if self.is_dark else QColor(15, 23, 42, 28)
         )
 
     def set_theme(self, is_dark: bool):
-        """Switch dark/light theme and refresh shadow + paint."""
+        """
+        Ganti tema gelap/terang dan perbarui tampilan kartu.
+        Dipanggil dari induk saat pengguna mengganti tema.
+        """
         self.is_dark = is_dark
-        self._apply_shadow()
-        self.update()
+        self._apply_shadow()  # Warna bayangan harus ikut berubah
+        self.update()         # Minta gambar ulang dengan warna tema baru
 
     def set_accent(self, accent):
-        """Set an optional accent color tint on the card fill."""
+        """
+        Atur warna aksen pada tint isian kartu.
+        Warna aksen memberikan sedikit warna khas di sudut kartu
+        (misalnya: merah untuk peringatan, hijau untuk status aman).
+
+        accent : String hex warna (misalnya '#FF6B35') atau None untuk menghapus aksen.
+        """
         self._accent = QColor(accent) if accent else None
         self.update()
 
     def set_interactive(self, enabled: bool):
-        """Enable click interaction — shows press feedback and emits clicked signal."""
+        """
+        Aktifkan atau nonaktifkan mode interaktif (klik).
+        Saat aktif: kursor berubah menjadi tangan dan kartu merespons klik.
+        Saat nonaktif: kartu hanya menampilkan visual, tidak bisa diklik.
+        """
         self._interactive = enabled
         self.setCursor(
             Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor
         )
 
-    # ── Animation ─────────────────────────────────────────────────────────────
+    # ── Animasi ─────────────────────────────────────────────────────────────
 
     def _on_hover_tick(self, dt: float):
-        """Advance hover and press fade animations. Stops timer when both settled."""
+        """
+        Jalankan satu langkah animasi hover DAN tekan setiap tick.
+
+        Hover  : _hover_t bergerak ke 1.0 saat mouse di atas, kembali ke 0.0 saat pergi.
+        Tekan  : _press_t memudar ke 0.0 setelah mouse dilepas (kilatan oranye).
+        Timer dihentikan saat kedua animasi sudah selesai.
+
+        dt : Waktu nyata yang berlalu sejak tick terakhir (detik).
+        """
+        # ── Animasi hover ──
         target = 1.0 if self._hovered else 0.0
         speed  = 5.5 if self._hovered else 4.5
         diff   = target - self._hover_t
+
         if abs(diff) >= 0.005:
+            # Masih perlu bergerak — gunakan rumus eksponensial
             self._hover_t += diff * (1.0 - pow(0.01, dt * speed))
         else:
+            # Sudah sampai target
             self._hover_t = target
 
-        # Press highlight fades out after mouse release
+        # ── Animasi kilatan tekan (press flash) ──
+        # Setelah mouse dilepas, nilai _press_t memudar perlahan ke 0
         if not self._pressed and self._press_t > 0.005:
+            # Kurangi _press_t secara eksponensial (cepat di awal, lambat di akhir)
             self._press_t -= self._press_t * (1.0 - pow(0.01, dt * 6.0))
         elif not self._pressed:
+            # Sudah sangat kecil — langsung nolkan
             self._press_t = 0.0
 
+        # ── Cek apakah semua animasi sudah selesai ──
         done_hover = abs(self._hover_t - target) < 0.005
         done_press = not self._pressed and self._press_t < 0.005
-        if done_hover and done_press:
-            self._hover_timer.stop()
-        self.update()
 
-    # ── Mouse events ──────────────────────────────────────────────────────────
+        if done_hover and done_press:
+            # Kedua animasi selesai — hentikan timer untuk hemat CPU
+            self._hover_timer.stop()
+
+        self.update()  # Minta gambar ulang
+
+    # ── Peristiwa Mouse ──────────────────────────────────────────────────────
 
     def enterEvent(self, event):
-        """Start hover animation."""
+        """Mulai animasi border oranye saat mouse memasuki kartu."""
         if self.hover_effect:
             self._hovered = True
             if not self._hover_timer.is_active():
@@ -193,7 +318,7 @@ class SoftCard(QFrame):
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        """Reverse hover animation."""
+        """Balik animasi border saat mouse meninggalkan kartu."""
         if self.hover_effect:
             self._hovered = False
             if not self._hover_timer.is_active():
@@ -201,75 +326,103 @@ class SoftCard(QFrame):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
-        """Trigger press flash if card is interactive."""
+        """Picu kilatan oranye saat kartu ditekan (hanya dalam mode interaktif)."""
         if self._interactive and event.button() == Qt.MouseButton.LeftButton:
             self._pressed = True
-            self._press_t = 1.0
+            self._press_t = 1.0  # Set kilatan ke penuh
             self.update()
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        """Emit clicked signal and start press fade-out."""
+        """
+        Lepaskan status tekan, mulai pudar efek kilatan, dan kirim sinyal klik
+        jika mouse masih berada di dalam kartu saat dilepas.
+        """
         if self._interactive and event.button() == Qt.MouseButton.LeftButton:
             self._pressed = False
+
+            # Hanya kirim sinyal 'clicked' jika mouse tidak keluar sebelum dilepas
             if self.rect().contains(event.position().toPoint()):
                 self.clicked.emit()
+
+            # Mulai animasi pudar kilatan
             if not self._hover_timer.is_active():
                 self._hover_timer.start()
         super().mouseReleaseEvent(event)
 
-    # ── Paint ─────────────────────────────────────────────────────────────────
+    # ── Menggambar ─────────────────────────────────────────────────────────
 
     def paintEvent(self, event):
-        """Draw card fill, optional accent tint, sheen, press overlay, and border."""
+        """
+        Gambar kartu dengan semua lapisan visual secara berurutan:
+
+          1. Isian gradasi dasar (warna berbeda untuk gelap/terang)
+          2. Tint aksen warna di sudut kiri atas (jika ada)
+          3. Kilap (sheen) terang di bagian atas kartu
+          4. Kilatan oranye saat kartu ditekan
+          5. Border yang beranimasi (idle → hover → tekan)
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        # Area gambar dikecilkan 1px dari tepi agar border tidak terpotong
         rect = self.rect().adjusted(1, 1, -1, -1)
+
+        # Path bentuk kartu dengan sudut melengkung
         path = QPainterPath()
         path.addRoundedRect(rect.x(), rect.y(), rect.width(), rect.height(), self._radius, self._radius)
 
-        # Base fill colors per theme
+        # ── Tentukan warna berdasarkan tema ──
         if self.is_dark:
+            # Mode gelap: warna abu-abu gelap dengan sedikit transparansi
             top_color       = QColor(Colors.DARK_BG_TERTIARY);  top_color.setAlpha(244)
             bottom_color    = QColor(Colors.DARK_BG_SECONDARY); bottom_color.setAlpha(244)
-            border_color    = QColor(Colors.DARK_TEXT_PRIMARY);  border_color.setAlpha(28)
-            highlight_color = QColor(Colors.DARK_TEXT_PRIMARY);  highlight_color.setAlpha(22)
-            hover_color     = QColor(Colors.ORANGE_500);         hover_color.setAlpha(85)
+            border_color    = QColor(Colors.DARK_TEXT_PRIMARY);  border_color.setAlpha(28)    # Border putih samar
+            highlight_color = QColor(Colors.DARK_TEXT_PRIMARY);  highlight_color.setAlpha(22) # Kilap putih samar
+            hover_color     = QColor(Colors.ORANGE_500);         hover_color.setAlpha(85)     # Hover oranye
         else:
+            # Mode terang: warna putih bersih
             top_color       = QColor(Colors.LIGHT_BG_PRIMARY);  top_color.setAlpha(250)
             bottom_color    = QColor(Colors.LIGHT_BG_SECONDARY);bottom_color.setAlpha(250)
             border_color    = QColor(Colors.LIGHT_BORDER);      border_color.setAlpha(210)
             highlight_color = QColor(Colors.LIGHT_BG_PRIMARY);  highlight_color.setAlpha(140)
             hover_color     = QColor(Colors.ORANGE_500);        hover_color.setAlpha(70)
 
-        # Base gradient fill
+        # ── Lapisan 1: Isian gradasi dasar ──
+        # Gradasi dari kiri-atas (lebih terang) ke kanan-bawah (lebih gelap)
         fill_gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
         fill_gradient.setColorAt(0.0, top_color)
         fill_gradient.setColorAt(1.0, bottom_color)
         painter.fillPath(path, QBrush(fill_gradient))
 
-        # Optional accent color tint
+        # ── Lapisan 2: Tint aksen warna (opsional) ──
+        # Memberikan sedikit warna khas di sudut kiri-atas kartu
         if self._accent:
             r, g, b = self._accent.red(), self._accent.green(), self._accent.blue()
             ag = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            # Alpha lebih tinggi di sudut atas, memudar ke 0 di sudut bawah
             ag.setColorAt(0.0,  QColor(r, g, b, 26 if self.is_dark else 18))
             ag.setColorAt(0.55, QColor(r, g, b, 10 if self.is_dark else 6))
             ag.setColorAt(1.0,  QColor(r, g, b, 0))
             painter.fillPath(path, QBrush(ag))
 
-        # Top sheen highlight
+        # ── Lapisan 3: Kilap (sheen) di bagian atas ──
+        # Efek permukaan mengkilap — hanya separuh atas kartu yang diberi kilap
         painter.save()
-        painter.setClipPath(path)
-        sheen_rect = rect.adjusted(0, 0, 0, -rect.height() * 0.45)
+        painter.setClipPath(path)  # Batasi gambar dalam bentuk kartu
+        sheen_rect = rect.adjusted(0, 0, 0, -rect.height() * 0.45)  # Hanya 55% atas
         sg = QLinearGradient(sheen_rect.topLeft(), sheen_rect.bottomLeft())
-        sg.setColorAt(0.0, highlight_color)
-        sg.setColorAt(1.0, QColor(highlight_color.red(), highlight_color.green(), highlight_color.blue(), 0))
+        sg.setColorAt(0.0, highlight_color)                                   # Terang di atas
+        sg.setColorAt(1.0, QColor(highlight_color.red(), highlight_color.green(), highlight_color.blue(), 0))  # Transparan di bawah
         painter.fillRect(sheen_rect, sg)
         painter.restore()
 
+        # ── Fungsi interpolasi warna (digunakan untuk border animasi) ──
         def _lerp_color(a: QColor, b: QColor, f: float) -> QColor:
-            """Linear interpolation between two QColors."""
+            """
+            Campurkan dua warna berdasarkan faktor f (0.0 = warna a, 1.0 = warna b).
+            Digunakan untuk transisi warna border idle→hover→tekan.
+            """
             return QColor(
                 int(a.red()   + (b.red()   - a.red())   * f),
                 int(a.green() + (b.green() - a.green()) * f),
@@ -277,20 +430,26 @@ class SoftCard(QFrame):
                 int(a.alpha() + (b.alpha() - a.alpha()) * f),
             )
 
-        # Press overlay — orange flash on click
+        # ── Lapisan 4: Kilatan isian saat ditekan ──
         pt = self._press_t
         if pt > 0.001:
+            # Isian oranye semi-transparan yang memudar setelah dilepas
             press_fill = QColor(Colors.ORANGE_500)
-            press_fill.setAlpha(int(55 * pt))
+            press_fill.setAlpha(int(55 * pt))  # Semakin kecil pt, semakin transparan
             painter.fillPath(path, QBrush(press_fill))
 
-        # Border: idle → hover orange → press bright orange
+        # ── Lapisan 5: Border beranimasi ──
         t             = self._hover_t
         press_border  = QColor(Colors.ORANGE_500); press_border.setAlpha(220)
-        blended       = _lerp_color(border_color, hover_color, t)
+
+        # Campurkan warna border idle → hover oranye
+        blended = _lerp_color(border_color, hover_color, t)
+
+        # Jika sedang/baru ditekan, campurkan lagi dengan warna tekan yang lebih terang
         if pt > 0.001:
             blended = _lerp_color(blended, press_border, pt)
 
+        # Ketebalan border bertambah saat hover dan tekan
         painter.setPen(QPen(blended, 1.0 + 0.4 * t + 0.6 * pt))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect, self._radius, self._radius)
@@ -300,88 +459,106 @@ class SoftCard(QFrame):
 
 class SpotlightCard(QFrame):
     """
-    Dark showcase card with thick border and strong contrast.
-    Best for compact KPI tiles that need a premium focal look.
+    Kartu showcase gelap dengan border tebal dan kontras tinggi.
+    Paling cocok untuk tile KPI kecil yang membutuhkan tampilan premium dan menonjol.
+
+    Berbeda dari SoftCard, SpotlightCard menggunakan border tebal (4px) di luar
+    dan border tipis di dalam, memberi kesan bingkai seperti foto.
+    Hover hanya mempertebal border luar sedikit — tidak ada animasi timer.
     """
 
     def __init__(self, parent=None, is_dark=True, hover_effect=True):
-        """Siapkan kartu sorotan untuk informasi penting dengan border kuat."""
+        """
+        Siapkan kartu sorotan premium.
+
+        is_dark      : True = mode gelap, False = mode terang.
+        hover_effect : Jika True, border sedikit menebal saat mouse di atas.
+        """
         super().__init__(parent)
         self.is_dark      = is_dark
         self.hover_effect = hover_effect
         self._hovered     = False
-        self._radius      = 30.0
+        self._radius      = 30.0  # Sudut lebih bulat dari SoftCard untuk kesan premium
 
         self.setObjectName("spotlightCard")
         self.setProperty("class", "spotlightCard")
 
+        # Bayangan jatuh untuk kesan melayang
         self._shadow = QGraphicsDropShadowEffect(self)
         self._shadow.setBlurRadius(24)
         self._shadow.setOffset(0, 10)
         self.setGraphicsEffect(self._shadow)
         self._apply_shadow()
 
-    # ── Theme ─────────────────────────────────────────────────────────────────
+    # ── Tema ────────────────────────────────────────────────────────────────
 
     def _apply_shadow(self):
-        """Update shadow color for current theme."""
+        """Perbarui warna bayangan sesuai tema aktif."""
         self._shadow.setColor(
             QColor(0, 0, 0, 90) if self.is_dark else QColor(15, 23, 42, 26)
         )
 
     def set_theme(self, is_dark: bool):
-        """Switch theme and repaint."""
+        """Ganti tema dan minta gambar ulang."""
         self.is_dark = is_dark
         self._apply_shadow()
         self.update()
 
-    # ── Mouse events ──────────────────────────────────────────────────────────
+    # ── Peristiwa Mouse ──────────────────────────────────────────────────────
 
     def enterEvent(self, event):
-        """Thicken border on hover."""
+        """Pertebal border saat mouse masuk (efek hover sederhana, tanpa timer)."""
         if self.hover_effect:
             self._hovered = True
             self.update()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        """Restore border on leave."""
+        """Kembalikan border ke ukuran normal saat mouse pergi."""
         if self.hover_effect:
             self._hovered = False
             self.update()
         super().leaveEvent(event)
 
-    # ── Paint ─────────────────────────────────────────────────────────────────
+    # ── Menggambar ─────────────────────────────────────────────────────────
 
     def paintEvent(self, event):
-        """Draw gradient fill, top sheen, thick outer border, and thin inner border."""
+        """
+        Gambar kartu spotlight dengan:
+          1. Isian gradasi gelap dari sudut kiri-atas ke kanan-bawah.
+          2. Kilap terang tipis di bagian atas (kesan cahaya dari atas).
+          3. Border luar tebal (sedikit menebal saat hover).
+          4. Border dalam tipis sebagai garis aksen tambahan.
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        # Perkecil area 2px dari tepi untuk ruang border tebal
         rect = self.rect().adjusted(2, 2, -2, -2)
         path = QPainterPath()
         path.addRoundedRect(rect, self._radius, self._radius)
 
+        # Tentukan warna sesuai tema
         if self.is_dark:
-            start_color  = QColor(Colors.DARK_BG_TERTIARY)
-            end_color    = QColor(Colors.DARK_BG_SECONDARY)
-            top_sheen    = QColor(Colors.DARK_TEXT_PRIMARY); top_sheen.setAlpha(20)
-            border_color = QColor(Colors.DARK_BG_PRIMARY)
-            inner_color  = QColor(Colors.DARK_TEXT_PRIMARY); inner_color.setAlpha(18)
+            start_color  = QColor(Colors.DARK_BG_TERTIARY)   # Abu-abu agak terang
+            end_color    = QColor(Colors.DARK_BG_SECONDARY)   # Abu-abu lebih gelap
+            top_sheen    = QColor(Colors.DARK_TEXT_PRIMARY); top_sheen.setAlpha(20)   # Kilap putih samar
+            border_color = QColor(Colors.DARK_BG_PRIMARY)     # Border gelap pekat
+            inner_color  = QColor(Colors.DARK_TEXT_PRIMARY); inner_color.setAlpha(18) # Border dalam putih samar
         else:
             start_color  = QColor(Colors.LIGHT_BG_PRIMARY)
             end_color    = QColor(Colors.LIGHT_BG_SECONDARY)
-            top_sheen    = QColor(Colors.ORANGE_500); top_sheen.setAlpha(18)
+            top_sheen    = QColor(Colors.ORANGE_500); top_sheen.setAlpha(18)   # Kilap oranye samar
             border_color = QColor(Colors.LIGHT_BORDER)
-            inner_color  = QColor(Colors.ORANGE_500); inner_color.setAlpha(28)
+            inner_color  = QColor(Colors.ORANGE_500); inner_color.setAlpha(28) # Border dalam oranye samar
 
-        # Base gradient
+        # ── Lapisan 1: Isian gradasi ──
         base_gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
         base_gradient.setColorAt(0.0, start_color)
         base_gradient.setColorAt(1.0, end_color)
         painter.fillPath(path, QBrush(base_gradient))
 
-        # Top sheen
+        # ── Lapisan 2: Kilap di bagian atas ──
         painter.save()
         painter.setClipPath(path)
         sheen_rect = rect.adjusted(0, 0, 0, -int(rect.height() * 0.54))
@@ -391,12 +568,14 @@ class SpotlightCard(QFrame):
         painter.fillRect(sheen_rect, sg)
         painter.restore()
 
-        # Outer border (thickens slightly on hover)
+        # ── Lapisan 3: Border luar tebal ──
+        # Saat hover border sedikit menebal: 4.0px → 4.6px
         painter.setPen(QPen(border_color, 4 if not self._hovered else 4.6))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect, self._radius, self._radius)
 
-        # Inner border accent line
+        # ── Lapisan 4: Border dalam tipis (garis aksen) ──
+        # Digambar 4px lebih ke dalam dari border luar untuk kesan bingkai ganda
         painter.setPen(QPen(inner_color, 1))
         painter.drawRoundedRect(rect.adjusted(4, 4, -4, -4), self._radius - 4, self._radius - 4)
 
@@ -405,35 +584,49 @@ class SpotlightCard(QFrame):
 
 class StatCard(QFrame):
     """
-    Minimal stat card with orange tint background and border.
-    Used for small KPI numbers in the dashboard.
+    Kartu statistik mini dengan tint oranye.
+    Digunakan untuk menampilkan angka-angka kunci kecil di dashboard.
+
+    Desainnya sederhana: hanya latar belakang bergradasi oranye samar
+    dengan border oranye tipis. Konten (teks angka) ditambahkan dari luar.
     """
 
     def __init__(self, parent=None, is_dark=True):
-        """Siapkan kartu statistik kecil yang hanya perlu menggambar background sendiri."""
+        """
+        Siapkan kartu statistik kecil.
+
+        is_dark : Disimpan untuk konsistensi API, belum digunakan secara aktif.
+        """
         super().__init__(parent)
         self.is_dark = is_dark
-        self.setObjectName("statCard")
+        self.setObjectName("statCard")  # Nama untuk penargetan CSS jika diperlukan
 
     def paintEvent(self, event):
-        """Draw orange-tinted rounded background and border."""
+        """
+        Gambar kartu statistik: latar oranye samar + border oranye tipis.
+
+        Sederhana dan ringan: tidak ada animasi, hanya satu lapisan fill dan satu border.
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect   = self.rect()
-        radius = 20.0
+        radius = 20.0  # Sudut lebih bulat dari widget lain untuk tampilan kompak
 
+        # Buat path bentuk kartu
         path = QPainterPath()
         path.addRoundedRect(rect.x(), rect.y(), rect.width(), rect.height(), radius, radius)
 
-        # Orange tint fill
+        # ── Isian oranye samar ──
+        # Alpha 25/255 ≈ 10% — sangat tipis, hanya warna khas saja
         painter.fillPath(path, QBrush(QColor(255, 165, 0, 25)))
 
-        # Orange border
+        # ── Border oranye tipis ──
+        # Alpha 51/255 ≈ 20% — sedikit lebih jelas dari isian
         painter.setPen(QPen(QColor(255, 165, 0, 51), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(
-            rect.x() + 0.5, rect.y() + 0.5,
+            rect.x() + 0.5, rect.y() + 0.5,     # Offset 0.5px agar border tidak terpotong
             rect.width() - 1, rect.height() - 1,
             radius, radius
         )
